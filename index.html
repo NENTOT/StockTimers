@@ -347,18 +347,27 @@
         const timers = await response.json();
 
         Object.entries(timers).forEach(([timerName, timerData]) => {
-          const element = timerElements[timerName];
-          const container = timerContainers[timerName];
-          
-          if (element && container) {
-            const remaining = timerData.remaining;
-            const isExpired = remaining <= 0;
-            
-            element.textContent = isExpired ? 'READY!' : formatTime(remaining);
-            element.className = isExpired ? 'timer-time expired' : 'timer-time';
-            container.className = isExpired ? 'timer expired' : 'timer';
-          }
-        });
+  const element = timerElements[timerName];
+  const container = timerContainers[timerName];
+
+  if (element && container) {
+    const remaining = timerData.remaining;
+    const isExpired = remaining <= 0;
+
+    element.textContent = isExpired ? 'READY!' : formatTime(remaining);
+    element.className = isExpired ? 'timer-time expired' : 'timer-time';
+    container.className = isExpired ? 'timer expired' : 'timer';
+
+    // ✅ Auto-refresh stock when timer expires
+    if (isExpired && element.dataset.expired !== 'true') {
+      element.dataset.expired = 'true'; // mark as handled
+      console.log(`⏰ ${timerName} expired, refreshing stock...`);
+      fetchStock(); // 🟢 Immediately refresh stock
+    } else if (!isExpired) {
+      element.dataset.expired = ''; // reset state
+    }
+  }
+});
 
         if (!isTimerConnected) updateTimerStatus(true);
       } catch (error) {
