@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Stock Timers</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <h1>Stock Timers</h1>
+
+  <div class="timer">
+    <div class="label">Seed/Gear Restock</div>
+    <div class="time" id="seedTimer">05:00</div>
+    <button onclick="resetTimer('seedTimer', 5)">Reset</button>
+  </div>
+
+  <div class="timer">
+    <div class="label">Egg Restock</div>
+    <div class="time" id="eggTimer">30:00</div>
+    <button onclick="resetTimer('eggTimer', 30)">Reset</button>
+  </div>
+
+  <div class="timer">
+    <div class="label">Cosmetic Restock</div>
+    <div class="time" id="cosmeticTimer">04:00:00</div>
+    <button onclick="resetTimer('cosmeticTimer', 240)">Reset</button>
+  </div>
+
+  <script src="script.js"></script>
+
+</body>
+</html>
