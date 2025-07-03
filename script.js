@@ -44,10 +44,15 @@ function updateStatus(connected) {
 }
 
 async function fetchTimers() {
+  console.log('⏱ Fetching timers from:', `${API_BASE_URL}/timers`);
   try {
     const response = await fetch(`${API_BASE_URL}/timers`);
+    console.log('📡 Response status:', response.status);
+
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
     const timers = await response.json();
+    console.log('✅ Fetched timers:', timers);
 
     Object.entries(timers).forEach(([timerName, timerData]) => {
       const element = timerElements[timerName];
@@ -58,7 +63,7 @@ async function fetchTimers() {
 
     if (!isConnected) updateStatus(true);
   } catch (error) {
-    console.error('Error fetching timers:', error);
+    console.error('❌ Error fetching timers:', error);
     if (isConnected) updateStatus(false);
   }
 }
