@@ -2,35 +2,534 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Stock Timers</title>
-  <link rel="stylesheet" href="styles.css">
+  <title>Stock Timers & Inventory</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+
+    h1 {
+      text-align: center;
+      color: #333;
+      margin-bottom: 30px;
+    }
+
+    .main-container {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 30px;
+    }
+
+    .timer-section {
+      background: white;
+      border-radius: 10px;
+      padding: 20px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+
+    .stock-section {
+      background: white;
+      border-radius: 10px;
+      padding: 20px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      max-height: 600px;
+      overflow-y: auto;
+    }
+
+    .section-title {
+      font-size: 24px;
+      font-weight: bold;
+      color: #333;
+      margin-bottom: 20px;
+      text-align: center;
+      border-bottom: 2px solid #007bff;
+      padding-bottom: 10px;
+    }
+
+    .timer {
+      background: #f8f9fa;
+      border-radius: 8px;
+      padding: 15px;
+      margin: 15px 0;
+      border-left: 4px solid #007bff;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .timer.expired {
+      border-left-color: #dc3545;
+      background: #ffe6e6;
+    }
+
+    .timer-label {
+      font-weight: bold;
+      color: #555;
+      font-size: 16px;
+    }
+
+    .timer-time {
+      font-size: 20px;
+      font-weight: bold;
+      color: #007bff;
+      font-family: monospace;
+    }
+
+    .timer-time.expired {
+      color: #dc3545;
+    }
+
+    .timer-button {
+      background-color: #007bff;
+      color: white;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+
+    .timer-button:hover {
+      background-color: #0056b3;
+    }
+
+    .timer-button:disabled {
+      background-color: #ccc;
+      cursor: not-allowed;
+    }
+
+    .status {
+      text-align: center;
+      padding: 10px;
+      margin-bottom: 20px;
+      border-radius: 5px;
+      font-size: 14px;
+    }
+
+    .status.connected {
+      background-color: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+
+    .status.disconnected {
+      background-color: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+
+    .stock-category {
+      margin-bottom: 20px;
+      background: #f8f9fa;
+      border-radius: 8px;
+      padding: 15px;
+      border-left: 4px solid #28a745;
+    }
+
+    .stock-category h3 {
+      margin: 0 0 10px 0;
+      color: #333;
+      font-size: 18px;
+    }
+
+    .stock-items {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 8px;
+    }
+
+    .stock-item {
+      background: white;
+      padding: 8px 12px;
+      border-radius: 4px;
+      border: 1px solid #ddd;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 14px;
+    }
+
+    .stock-item-name {
+      font-weight: 500;
+      color: #333;
+    }
+
+    .stock-item-quantity {
+      font-weight: bold;
+      color: #007bff;
+      background: #e7f3ff;
+      padding: 2px 6px;
+      border-radius: 3px;
+    }
+
+    .timestamp {
+      text-align: center;
+      color: #666;
+      font-size: 12px;
+      margin-bottom: 15px;
+    }
+
+    .refresh-button {
+      background-color: #28a745;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 14px;
+      margin: 10px auto;
+      display: block;
+    }
+
+    .refresh-button:hover {
+      background-color: #218838;
+    }
+
+    .loading {
+      text-align: center;
+      color: #666;
+      font-style: italic;
+    }
+
+    .error {
+      background-color: #f8d7da;
+      color: #721c24;
+      padding: 10px;
+      border-radius: 5px;
+      margin: 10px 0;
+    }
+
+    @media (max-width: 768px) {
+      .main-container {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
 </head>
 <body>
+  <h1>🌱 Stock Timers & Inventory Dashboard</h1>
 
-  <h1>Stock Timers</h1>
+  <div class="main-container">
+    <!-- Timer Section -->
+    <div class="timer-section">
+      <div class="section-title">⏰ Stock Refresh Timers</div>
+      
+      <div id="timer-status" class="status disconnected">
+        Connecting to timer service...
+      </div>
 
-  <div id="status" class="status disconnected">
-    Connecting to timer service...
+      <div class="timer" id="seed-timer">
+        <div class="timer-label">🌱 Seed/Gear Restock</div>
+        <div class="timer-time" id="seedTimer">--:--</div>
+        <button class="timer-button" onclick="resetTimer('seedTimer')" id="seedResetBtn">Reset</button>
+      </div>
+
+      <div class="timer" id="egg-timer">
+        <div class="timer-label">🥚 Egg Restock</div>
+        <div class="timer-time" id="eggTimer">--:--</div>
+        <button class="timer-button" onclick="resetTimer('eggTimer')" id="eggResetBtn">Reset</button>
+      </div>
+
+      <div class="timer" id="cosmetic-timer">
+        <div class="timer-label">💄 Cosmetic Restock</div>
+        <div class="timer-time" id="cosmeticTimer">--:--:--</div>
+        <button class="timer-button" onclick="resetTimer('cosmeticTimer')" id="cosmeticResetBtn">Reset</button>
+      </div>
+    </div>
+
+    <!-- Stock Section -->
+    <div class="stock-section">
+      <div class="section-title">📦 Current Stock Levels</div>
+      
+      <div id="stock-status" class="status disconnected">
+        Connecting to stock service...
+      </div>
+
+      <div class="timestamp" id="stock-timestamp">Last updated: --</div>
+
+      <button class="refresh-button" onclick="refreshStock()" id="refreshStockBtn">
+        🔄 Refresh Stock
+      </button>
+
+      <div id="stock-container">
+        <div class="loading">Loading stock data...</div>
+      </div>
+    </div>
   </div>
 
-  <div class="timer">
-    <div class="label">Seed/Gear Restock</div>
-    <div class="time" id="seedTimer">--:--</div>
-    <button onclick="resetTimer('seedTimer')" id="seedResetBtn">Reset</button>
-  </div>
+  <script>
+    // API Configuration
+    const TIMER_API_URL = 'https://timerapi-lzn3.onrender.com/api';
+    const STOCK_API_URL = 'https://grow-a-garden-api-4ses.onrender.com/api';
+    const UPDATE_INTERVAL = 1000; // 1 second for timers
+    const STOCK_UPDATE_INTERVAL = 30000; // 30 seconds for stock
 
-  <div class="timer">
-    <div class="label">Egg Restock</div>
-    <div class="time" id="eggTimer">--:--</div>
-    <button onclick="resetTimer('eggTimer')" id="eggResetBtn">Reset</button>
-  </div>
+    // State management
+    let timerUpdateInterval;
+    let stockUpdateInterval;
+    let isTimerConnected = false;
+    let isStockConnected = false;
 
-  <div class="timer">
-    <div class="label">Cosmetic Restock</div>
-    <div class="time" id="cosmeticTimer">--:--:--</div>
-    <button onclick="resetTimer('cosmeticTimer')" id="cosmeticResetBtn">Reset</button>
-  </div>
+    // Timer elements
+    const timerElements = {
+      seedTimer: document.getElementById('seedTimer'),
+      eggTimer: document.getElementById('eggTimer'),
+      cosmeticTimer: document.getElementById('cosmeticTimer')
+    };
 
-  <script src="script.js"></script>
+    const timerContainers = {
+      seedTimer: document.getElementById('seed-timer'),
+      eggTimer: document.getElementById('egg-timer'),
+      cosmeticTimer: document.getElementById('cosmetic-timer')
+    };
+
+    const timerStatusElement = document.getElementById('timer-status');
+    const stockStatusElement = document.getElementById('stock-status');
+    const stockContainer = document.getElementById('stock-container');
+    const stockTimestamp = document.getElementById('stock-timestamp');
+
+    const resetButtons = {
+      seedTimer: document.getElementById('seedResetBtn'),
+      eggTimer: document.getElementById('eggResetBtn'),
+      cosmeticTimer: document.getElementById('cosmeticResetBtn')
+    };
+
+    // Utility functions
+    function formatTime(seconds) {
+      const hours = Math.floor(seconds / 3600);
+      const minutes = Math.floor((seconds % 3600) / 60);
+      const secs = seconds % 60;
+
+      if (hours > 0) {
+        return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+      } else {
+        return `${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+      }
+    }
+
+    function updateTimerStatus(connected) {
+      isTimerConnected = connected;
+      if (connected) {
+        timerStatusElement.textContent = 'Connected to timer service';
+        timerStatusElement.className = 'status connected';
+        Object.values(resetButtons).forEach(btn => btn.disabled = false);
+      } else {
+        timerStatusElement.textContent = 'Disconnected from timer service - Retrying...';
+        timerStatusElement.className = 'status disconnected';
+        Object.values(resetButtons).forEach(btn => btn.disabled = true);
+        Object.values(timerElements).forEach(el => el.textContent = '--:--');
+      }
+    }
+
+    function updateStockStatus(connected, message = null) {
+      isStockConnected = connected;
+      if (connected) {
+        stockStatusElement.textContent = message || 'Connected to stock service';
+        stockStatusElement.className = 'status connected';
+        document.getElementById('refreshStockBtn').disabled = false;
+      } else {
+        stockStatusElement.textContent = message || 'Disconnected from stock service';
+        stockStatusElement.className = 'status disconnected';
+        document.getElementById('refreshStockBtn').disabled = true;
+      }
+    }
+
+    // Timer functions
+    async function fetchTimers() {
+      try {
+        const response = await fetch(`${TIMER_API_URL}/timers`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+        const timers = await response.json();
+
+        Object.entries(timers).forEach(([timerName, timerData]) => {
+          const element = timerElements[timerName];
+          const container = timerContainers[timerName];
+          
+          if (element && container) {
+            const remaining = timerData.remaining;
+            const isExpired = remaining <= 0;
+            
+            element.textContent = isExpired ? 'READY!' : formatTime(remaining);
+            element.className = isExpired ? 'timer-time expired' : 'timer-time';
+            container.className = isExpired ? 'timer expired' : 'timer';
+          }
+        });
+
+        if (!isTimerConnected) updateTimerStatus(true);
+      } catch (error) {
+        console.error('Error fetching timers:', error);
+        if (isTimerConnected) updateTimerStatus(false);
+      }
+    }
+
+    async function resetTimer(timerName) {
+      try {
+        const response = await fetch(`${TIMER_API_URL}/timers/${timerName}/reset`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        await fetchTimers();
+      } catch (error) {
+        console.error('Error resetting timer:', error);
+        alert('Failed to reset timer. Please try again.');
+      }
+    }
+
+    // Stock functions
+    async function fetchStock() {
+      try {
+        stockContainer.innerHTML = '<div class="loading">Loading stock data...</div>';
+        
+        const response = await fetch(`${STOCK_API_URL}/stock/GetStock`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+        const stockData = await response.json();
+        displayStock(stockData);
+        
+        stockTimestamp.textContent = `Last updated: ${new Date().toLocaleString()}`;
+        updateStockStatus(true, `Stock data loaded successfully`);
+      } catch (error) {
+        console.error('Error fetching stock:', error);
+        stockContainer.innerHTML = `<div class="error">Error loading stock data: ${error.message}</div>`;
+        updateStockStatus(false, `Error: ${error.message}`);
+      }
+    }
+
+    function displayStock(stockData) {
+      let html = '';
+      
+      const categories = [
+        { key: 'seedsStock', name: 'Seeds', emoji: '🌱' },
+        { key: 'gearStock', name: 'Gears', emoji: '⚙️' },
+        { key: 'eggStock', name: 'Eggs', emoji: '🥚' },
+        { key: 'honeyStock', name: 'Honey', emoji: '🍯' },
+        { key: 'cosmeticsStock', name: 'Cosmetics', emoji: '💄' },
+        { key: 'easterStock', name: 'Easter Items', emoji: '🐰' },
+        { key: 'nightStock', name: 'Night Items', emoji: '🌙' }
+      ];
+
+      categories.forEach(category => {
+        const items = stockData[category.key];
+        if (items && items.length > 0) {
+          html += `
+            <div class="stock-category">
+              <h3>${category.emoji} ${category.name} (${items.length} items)</h3>
+              <div class="stock-items">
+          `;
+          
+          items.forEach(item => {
+            html += `
+              <div class="stock-item">
+                <span class="stock-item-name">${item.name}</span>
+                <span class="stock-item-quantity">${item.value}</span>
+              </div>
+            `;
+          });
+          
+          html += `
+              </div>
+            </div>
+          `;
+        }
+      });
+
+      if (html === '') {
+        html = '<div class="loading">No stock data available</div>';
+      }
+
+      stockContainer.innerHTML = html;
+    }
+
+    function refreshStock() {
+      fetchStock();
+    }
+
+    // URL parameter handling
+    function checkResetFromURL() {
+      const params = new URLSearchParams(window.location.search);
+      const resetTarget = params.get("reset");
+
+      const timerMap = {
+        'seed': 'seedTimer',
+        'egg': 'eggTimer',
+        'cosmetic': 'cosmeticTimer'
+      };
+
+      if (resetTarget && timerMap[resetTarget]) {
+        resetTimer(timerMap[resetTarget]);
+      }
+
+      if (resetTarget) {
+        const url = new URL(window.location);
+        url.searchParams.delete('reset');
+        window.history.replaceState({}, '', url);
+      }
+    }
+
+    // Update intervals
+    function startTimerUpdates() {
+      fetchTimers();
+      timerUpdateInterval = setInterval(fetchTimers, UPDATE_INTERVAL);
+    }
+
+    function stopTimerUpdates() {
+      if (timerUpdateInterval) {
+        clearInterval(timerUpdateInterval);
+        timerUpdateInterval = null;
+      }
+    }
+
+    function startStockUpdates() {
+      fetchStock();
+      stockUpdateInterval = setInterval(fetchStock, STOCK_UPDATE_INTERVAL);
+    }
+
+    function stopStockUpdates() {
+      if (stockUpdateInterval) {
+        clearInterval(stockUpdateInterval);
+        stockUpdateInterval = null;
+      }
+    }
+
+    // Page visibility handling
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) {
+        stopTimerUpdates();
+        stopStockUpdates();
+      } else {
+        startTimerUpdates();
+        startStockUpdates();
+      }
+    });
+
+    // Cleanup on page unload
+    window.addEventListener('beforeunload', function () {
+      stopTimerUpdates();
+      stopStockUpdates();
+    });
+
+    // Initialize
+    function initialize() {
+      updateTimerStatus(false);
+      updateStockStatus(false);
+      startTimerUpdates();
+      startStockUpdates();
+      checkResetFromURL();
+    }
+
+    // Start when page is ready
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initialize);
+    } else {
+      initialize();
+    }
+  </script>
 </body>
 </html>
