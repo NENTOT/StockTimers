@@ -261,16 +261,14 @@
     </div>
   </div>
 
-  <script>
+ <script>
     // API Configuration
     const TIMER_API_URL = 'https://timerapi-lzn3.onrender.com/api';
     const STOCK_API_URL = 'https://grow-a-garden-api-4ses.onrender.com/api';
     const UPDATE_INTERVAL = 1000; // 1 second for timers
-    const STOCK_UPDATE_INTERVAL = 30000; // 30 seconds for stock
 
     // State management
     let timerUpdateInterval;
-    let stockUpdateInterval;
     let isTimerConnected = false;
     let isStockConnected = false;
 
@@ -495,33 +493,18 @@
       }
     }
 
-    function startStockUpdates() {
-      fetchStock();
-      stockUpdateInterval = setInterval(fetchStock, STOCK_UPDATE_INTERVAL);
-    }
-
-    function stopStockUpdates() {
-      if (stockUpdateInterval) {
-        clearInterval(stockUpdateInterval);
-        stockUpdateInterval = null;
-      }
-    }
-
     // Page visibility handling
     document.addEventListener('visibilitychange', function () {
       if (document.hidden) {
         stopTimerUpdates();
-        stopStockUpdates();
       } else {
         startTimerUpdates();
-        startStockUpdates();
       }
     });
 
     // Cleanup on page unload
     window.addEventListener('beforeunload', function () {
       stopTimerUpdates();
-      stopStockUpdates();
     });
 
     // Initialize
@@ -529,7 +512,7 @@
       updateTimerStatus(false);
       updateStockStatus(false);
       startTimerUpdates();
-      startStockUpdates();
+      fetchStock(); // Initial stock load only
       checkResetFromURL();
     }
 
