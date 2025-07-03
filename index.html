@@ -9,25 +9,28 @@
 
   <h1>Stock Timers</h1>
 
+  <div id="status" class="status disconnected">
+    Connecting to timer service...
+  </div>
+
   <div class="timer">
     <div class="label">Seed/Gear Restock</div>
-    <div class="time" id="seedTimer">05:00</div>
-    <button onclick="resetTimer('seedTimer', 5)">Reset</button>
+    <div class="time" id="seedTimer">--:--</div>
+    <button onclick="resetTimer('seedTimer')" id="seedResetBtn">Reset</button>
   </div>
 
   <div class="timer">
     <div class="label">Egg Restock</div>
-    <div class="time" id="eggTimer">30:00</div>
-    <button onclick="resetTimer('eggTimer', 30)">Reset</button>
+    <div class="time" id="eggTimer">--:--</div>
+    <button onclick="resetTimer('eggTimer')" id="eggResetBtn">Reset</button>
   </div>
 
   <div class="timer">
     <div class="label">Cosmetic Restock</div>
-    <div class="time" id="cosmeticTimer">04:00:00</div>
-    <button onclick="resetTimer('cosmeticTimer', 240)">Reset</button>
+    <div class="time" id="cosmeticTimer">--:--:--</div>
+    <button onclick="resetTimer('cosmeticTimer')" id="cosmeticResetBtn">Reset</button>
   </div>
 
   <script src="script.js"></script>
-
 </body>
 </html>
