@@ -1,4 +1,4 @@
-const API_BASE_URL = 'https://timerapi-lzn3.onrender.com';
+const API_BASE_URL = 'https://timerapi-lzn3.onrender.com/api';
 const UPDATE_INTERVAL = 1000;
 
 let updateInterval;
