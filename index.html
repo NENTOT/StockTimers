@@ -83,25 +83,6 @@
       color: #dc3545;
     }
 
-    .timer-button {
-      background-color: #007bff;
-      color: white;
-      border: none;
-      padding: 6px 12px;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 12px;
-    }
-
-    .timer-button:hover {
-      background-color: #0056b3;
-    }
-
-    .timer-button:disabled {
-      background-color: #ccc;
-      cursor: not-allowed;
-    }
-
     .status {
       text-align: center;
       padding: 10px;
@@ -219,25 +200,42 @@
       <div class="section-title">⏰ Stock Refresh Timers</div>
       
       <div id="timer-status" class="status disconnected">
-        Connecting to timer service...
+        Connecting to restock service...
       </div>
 
       <div class="timer" id="seed-timer">
-        <div class="timer-label">🌱 Seed/Gear Restock</div>
+        <div class="timer-label">🌱 Seed Restock</div>
         <div class="timer-time" id="seedTimer">--:--</div>
-        <button class="timer-button" onclick="resetTimer('seedTimer')" id="seedResetBtn">Reset</button>
+      </div>
+
+      <div class="timer" id="gear-timer">
+        <div class="timer-label">⚙️ Gear Restock</div>
+        <div class="timer-time" id="gearTimer">--:--</div>
       </div>
 
       <div class="timer" id="egg-timer">
         <div class="timer-label">🥚 Egg Restock</div>
         <div class="timer-time" id="eggTimer">--:--</div>
-        <button class="timer-button" onclick="resetTimer('eggTimer')" id="eggResetBtn">Reset</button>
+      </div>
+
+      <div class="timer" id="honey-timer">
+        <div class="timer-label">🍯 Honey Restock</div>
+        <div class="timer-time" id="honeyTimer">--:--</div>
       </div>
 
       <div class="timer" id="cosmetic-timer">
         <div class="timer-label">💄 Cosmetic Restock</div>
         <div class="timer-time" id="cosmeticTimer">--:--:--</div>
-        <button class="timer-button" onclick="resetTimer('cosmeticTimer')" id="cosmeticResetBtn">Reset</button>
+      </div>
+
+      <div class="timer" id="easter-timer">
+        <div class="timer-label">🐰 Easter Restock</div>
+        <div class="timer-time" id="easterTimer">--:--:--</div>
+      </div>
+
+      <div class="timer" id="night-timer">
+        <div class="timer-label">🌙 Night Restock</div>
+        <div class="timer-time" id="nightTimer">--:--:--</div>
       </div>
     </div>
 
@@ -251,8 +249,8 @@
 
       <div class="timestamp" id="stock-timestamp">Last updated: --</div>
 
-      <button class="refresh-button" onclick="refreshStock()" id="refreshStockBtn">
-        🔄 Refresh Stock
+      <button class="refresh-button" onclick="refreshAll()" id="refreshAllBtn">
+        🔄 Refresh All Data
       </button>
 
       <div id="stock-container">
@@ -261,30 +259,37 @@
     </div>
   </div>
 
- <script>
+  <script>
     // API Configuration
-    const TIMER_API_URL = 'https://timerapi-lzn3.onrender.com/api';
-    const STOCK_API_URL = 'https://grow-a-garden-api-4ses.onrender.com/api';
+    const API_BASE_URL = 'https://grow-a-garden-api-4ses.onrender.com/api';
     const UPDATE_INTERVAL = 1000; // 1 second for timers
 
     // State management
     let timerUpdateInterval;
-    let isTimerConnected = false;
-    let isStockConnected = false;
+    let isConnected = false;
     let previousStockData = null;
     let stockRefreshTimeout = null;
+    let restockTimes = {};
 
     // Timer elements
     const timerElements = {
       seedTimer: document.getElementById('seedTimer'),
+      gearTimer: document.getElementById('gearTimer'),
       eggTimer: document.getElementById('eggTimer'),
-      cosmeticTimer: document.getElementById('cosmeticTimer')
+      honeyTimer: document.getElementById('honeyTimer'),
+      cosmeticTimer: document.getElementById('cosmeticTimer'),
+      easterTimer: document.getElementById('easterTimer'),
+      nightTimer: document.getElementById('nightTimer')
     };
 
     const timerContainers = {
       seedTimer: document.getElementById('seed-timer'),
+      gearTimer: document.getElementById('gear-timer'),
       eggTimer: document.getElementById('egg-timer'),
-      cosmeticTimer: document.getElementById('cosmetic-timer')
+      honeyTimer: document.getElementById('honey-timer'),
+      cosmeticTimer: document.getElementById('cosmetic-timer'),
+      easterTimer: document.getElementById('easter-timer'),
+      nightTimer: document.getElementById('night-timer')
     };
 
     const timerStatusElement = document.getElementById('timer-status');
@@ -292,10 +297,15 @@
     const stockContainer = document.getElementById('stock-container');
     const stockTimestamp = document.getElementById('stock-timestamp');
 
-    const resetButtons = {
-      seedTimer: document.getElementById('seedResetBtn'),
-      eggTimer: document.getElementById('eggResetBtn'),
-      cosmeticTimer: document.getElementById('cosmeticResetBtn')
+    // Timer mapping for API response
+    const timerMapping = {
+      'seedTimer': 'seed',
+      'gearTimer': 'gear',
+      'eggTimer': 'egg',
+      'honeyTimer': 'honey',
+      'cosmeticTimer': 'cosmetic',
+      'easterTimer': 'easter',
+      'nightTimer': 'night'
     };
 
     // Utility functions
@@ -312,35 +322,37 @@
     }
 
     function updateTimerStatus(connected) {
-      isTimerConnected = connected;
       if (connected) {
-        timerStatusElement.textContent = 'Connected to timer service';
+        timerStatusElement.textContent = 'Connected to restock service';
         timerStatusElement.className = 'status connected';
-        Object.values(resetButtons).forEach(btn => btn.disabled = false);
       } else {
-        timerStatusElement.textContent = 'Disconnected from timer service - Retrying...';
+        timerStatusElement.textContent = 'Disconnected from restock service - Retrying...';
         timerStatusElement.className = 'status disconnected';
-        Object.values(resetButtons).forEach(btn => btn.disabled = true);
         Object.values(timerElements).forEach(el => el.textContent = '--:--');
       }
     }
 
     function updateStockStatus(connected, message = null) {
-      isStockConnected = connected;
       if (connected) {
         stockStatusElement.textContent = message || 'Connected to stock service';
         stockStatusElement.className = 'status connected';
-        document.getElementById('refreshStockBtn').disabled = false;
+        document.getElementById('refreshAllBtn').disabled = false;
       } else {
         stockStatusElement.textContent = message || 'Disconnected from stock service';
         stockStatusElement.className = 'status disconnected';
-        document.getElementById('refreshStockBtn').disabled = true;
+        document.getElementById('refreshAllBtn').disabled = true;
       }
+    }
+
+    function updateConnectionStatus(connected) {
+      isConnected = connected;
+      updateTimerStatus(connected);
+      updateStockStatus(connected);
     }
 
     // Function to compare stock data
     function compareStockData(newData, oldData) {
-      if (!oldData) return false; // No previous data to compare
+      if (!oldData) return false;
       
       try {
         return JSON.stringify(newData) === JSON.stringify(oldData);
@@ -350,57 +362,66 @@
       }
     }
 
-    // Timer functions
-    async function fetchTimers() {
+    // Fetch restock times from API
+    async function fetchRestockTimes() {
       try {
-        const response = await fetch(`${TIMER_API_URL}/timers`);
+        const response = await fetch(`${API_BASE_URL}/restock/GetRestockTime`);
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
-        const timers = await response.json();
-
-        Object.entries(timers).forEach(([timerName, timerData]) => {
-          const element = timerElements[timerName];
-          const container = timerContainers[timerName];
-
-          if (element && container) {
-            const remaining = timerData.remaining;
-            const isExpired = remaining <= 0;
-
-            element.textContent = isExpired ? 'READY!' : formatTime(remaining);
-            element.className = isExpired ? 'timer-time expired' : 'timer-time';
-            container.className = isExpired ? 'timer expired' : 'timer';
-
-            // ✅ Auto-refresh stock when timer expires
-            if (isExpired && element.dataset.expired !== 'true') {
-              element.dataset.expired = 'true'; // mark as handled
-              console.log(`⏰ ${timerName} expired, refreshing stock...`);
-              fetchStockWithComparison(); // 🟢 Refresh stock with comparison
-            } else if (!isExpired) {
-              element.dataset.expired = ''; // reset state
-            }
+        const data = await response.json();
+        
+        // Store the restock times with timestamps
+        restockTimes = {};
+        const now = Date.now();
+        
+        Object.entries(data).forEach(([key, value]) => {
+          if (typeof value === 'number') {
+            // Convert Unix timestamp to milliseconds and calculate remaining time
+            const restockTime = value * 1000; // Convert to milliseconds
+            const remaining = Math.max(0, Math.floor((restockTime - now) / 1000));
+            restockTimes[key] = {
+              restockTime: restockTime,
+              remaining: remaining
+            };
           }
         });
 
-        if (!isTimerConnected) updateTimerStatus(true);
+        updateTimerDisplay();
+        if (!isConnected) updateConnectionStatus(true);
+        
       } catch (error) {
-        console.error('Error fetching timers:', error);
-        if (isTimerConnected) updateTimerStatus(false);
+        console.error('Error fetching restock times:', error);
+        if (isConnected) updateConnectionStatus(false);
       }
     }
 
-    async function resetTimer(timerName) {
-      try {
-        const response = await fetch(`${TIMER_API_URL}/timers/${timerName}/reset`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
-        });
+    // Update timer display
+    function updateTimerDisplay() {
+      const now = Date.now();
+      
+      Object.entries(timerMapping).forEach(([elementKey, apiKey]) => {
+        const element = timerElements[elementKey];
+        const container = timerContainers[elementKey];
+        
+        if (element && container && restockTimes[apiKey]) {
+          const timerData = restockTimes[apiKey];
+          const remaining = Math.max(0, Math.floor((timerData.restockTime - now) / 1000));
+          const isExpired = remaining <= 0;
 
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-        await fetchTimers();
-      } catch (error) {
-        console.error('Error resetting timer:', error);
-        alert('Failed to reset timer. Please try again.');
-      }
+          element.textContent = isExpired ? 'READY!' : formatTime(remaining);
+          element.className = isExpired ? 'timer-time expired' : 'timer-time';
+          container.className = isExpired ? 'timer expired' : 'timer';
+
+          // Auto-refresh stock when timer expires
+          if (isExpired && element.dataset.expired !== 'true') {
+            element.dataset.expired = 'true';
+            console.log(`⏰ ${apiKey} expired, refreshing stock...`);
+            fetchStockWithComparison();
+          } else if (!isExpired) {
+            element.dataset.expired = '';
+          }
+        }
+      });
     }
 
     // Stock functions
@@ -408,7 +429,7 @@
       try {
         stockContainer.innerHTML = '<div class="loading">Loading stock data...</div>';
         
-        const response = await fetch(`${STOCK_API_URL}/stock/GetStock`);
+        const response = await fetch(`${API_BASE_URL}/stock/GetStock`);
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
         const stockData = await response.json();
@@ -439,12 +460,10 @@
           console.log('🔄 Stock unchanged, scheduling refresh in 10 seconds...');
           updateStockStatus(true, 'Stock unchanged - Auto-refresh in 10 seconds');
           
-          // Clear any existing timeout
           if (stockRefreshTimeout) {
             clearTimeout(stockRefreshTimeout);
           }
           
-          // Set new timeout for 10 seconds
           stockRefreshTimeout = setTimeout(() => {
             console.log('🔄 Auto-refreshing stock after 10 seconds...');
             fetchStockWithComparison();
@@ -453,14 +472,12 @@
           console.log('✅ Stock changed, no need for auto-refresh');
           updateStockStatus(true, 'Stock updated successfully');
           
-          // Clear any existing timeout since stock changed
           if (stockRefreshTimeout) {
             clearTimeout(stockRefreshTimeout);
             stockRefreshTimeout = null;
           }
         }
         
-        // Update previous stock data
         previousStockData = JSON.parse(JSON.stringify(newStockData));
       }
     }
@@ -510,45 +527,32 @@
       stockContainer.innerHTML = html;
     }
 
-    function refreshStock() {
+    function refreshAll() {
       // Clear any pending auto-refresh
       if (stockRefreshTimeout) {
         clearTimeout(stockRefreshTimeout);
         stockRefreshTimeout = null;
       }
       
+      // Fetch both restock times and stock
+      fetchRestockTimes();
       fetchStock();
     }
 
-    // URL parameter handling
-    function checkResetFromURL() {
-      const params = new URLSearchParams(window.location.search);
-      const resetTarget = params.get("reset");
-
-      const timerMap = {
-        'seed': 'seedTimer',
-        'egg': 'eggTimer',
-        'cosmetic': 'cosmeticTimer'
-      };
-
-      if (resetTarget && timerMap[resetTarget]) {
-        resetTimer(timerMap[resetTarget]);
-      }
-
-      if (resetTarget) {
-        const url = new URL(window.location);
-        url.searchParams.delete('reset');
-        window.history.replaceState({}, '', url);
-      }
-    }
-
     // Update intervals
-    function startTimerUpdates() {
-      fetchTimers();
-      timerUpdateInterval = setInterval(fetchTimers, UPDATE_INTERVAL);
+    function startUpdates() {
+      fetchRestockTimes();
+      fetchStock();
+      timerUpdateInterval = setInterval(() => {
+        updateTimerDisplay(); // Update display every second
+        // Fetch new restock times every 30 seconds
+        if (Date.now() % 30000 < 1000) {
+          fetchRestockTimes();
+        }
+      }, UPDATE_INTERVAL);
     }
 
-    function stopTimerUpdates() {
+    function stopUpdates() {
       if (timerUpdateInterval) {
         clearInterval(timerUpdateInterval);
         timerUpdateInterval = null;
@@ -558,22 +562,19 @@
     // Page visibility handling
     document.addEventListener('visibilitychange', function () {
       if (document.hidden) {
-        stopTimerUpdates();
-        // Clear any pending stock refresh when page is hidden
+        stopUpdates();
         if (stockRefreshTimeout) {
           clearTimeout(stockRefreshTimeout);
           stockRefreshTimeout = null;
         }
       } else {
-        startTimerUpdates();
-        // Also refresh stock when page becomes visible again
-        fetchStock();
+        startUpdates();
       }
     });
 
     // Cleanup on page unload
     window.addEventListener('beforeunload', function () {
-      stopTimerUpdates();
+      stopUpdates();
       if (stockRefreshTimeout) {
         clearTimeout(stockRefreshTimeout);
         stockRefreshTimeout = null;
@@ -582,16 +583,13 @@
 
     // Initialize
     function initialize() {
-      updateTimerStatus(false);
-      updateStockStatus(false);
-      startTimerUpdates();
-      fetchStock(); // Initial stock load only
-      checkResetFromURL();
+      updateConnectionStatus(false);
+      startUpdates();
       
       // Set up manual refresh button
-      const refreshBtn = document.getElementById('refreshStockBtn');
+      const refreshBtn = document.getElementById('refreshAllBtn');
       if (refreshBtn) {
-        refreshBtn.addEventListener('click', refreshStock);
+        refreshBtn.addEventListener('click', refreshAll);
       }
     }
 
