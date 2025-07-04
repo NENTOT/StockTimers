@@ -271,6 +271,8 @@
     let timerUpdateInterval;
     let isTimerConnected = false;
     let isStockConnected = false;
+    let previousStockData = null;
+    let stockRefreshTimeout = null;
 
     // Timer elements
     const timerElements = {
@@ -336,6 +338,18 @@
       }
     }
 
+    // Function to compare stock data
+    function compareStockData(newData, oldData) {
+      if (!oldData) return false; // No previous data to compare
+      
+      try {
+        return JSON.stringify(newData) === JSON.stringify(oldData);
+      } catch (error) {
+        console.error('Error comparing stock data:', error);
+        return false;
+      }
+    }
+
     // Timer functions
     async function fetchTimers() {
       try {
@@ -345,27 +359,27 @@
         const timers = await response.json();
 
         Object.entries(timers).forEach(([timerName, timerData]) => {
-  const element = timerElements[timerName];
-  const container = timerContainers[timerName];
+          const element = timerElements[timerName];
+          const container = timerContainers[timerName];
 
-  if (element && container) {
-    const remaining = timerData.remaining;
-    const isExpired = remaining <= 0;
+          if (element && container) {
+            const remaining = timerData.remaining;
+            const isExpired = remaining <= 0;
 
-    element.textContent = isExpired ? 'READY!' : formatTime(remaining);
-    element.className = isExpired ? 'timer-time expired' : 'timer-time';
-    container.className = isExpired ? 'timer expired' : 'timer';
+            element.textContent = isExpired ? 'READY!' : formatTime(remaining);
+            element.className = isExpired ? 'timer-time expired' : 'timer-time';
+            container.className = isExpired ? 'timer expired' : 'timer';
 
-    // ✅ Auto-refresh stock when timer expires
-    if (isExpired && element.dataset.expired !== 'true') {
-      element.dataset.expired = 'true'; // mark as handled
-      console.log(`⏰ ${timerName} expired, refreshing stock...`);
-      fetchStock(); // 🟢 Immediately refresh stock
-    } else if (!isExpired) {
-      element.dataset.expired = ''; // reset state
-    }
-  }
-});
+            // ✅ Auto-refresh stock when timer expires
+            if (isExpired && element.dataset.expired !== 'true') {
+              element.dataset.expired = 'true'; // mark as handled
+              console.log(`⏰ ${timerName} expired, refreshing stock...`);
+              fetchStockWithComparison(); // 🟢 Refresh stock with comparison
+            } else if (!isExpired) {
+              element.dataset.expired = ''; // reset state
+            }
+          }
+        });
 
         if (!isTimerConnected) updateTimerStatus(true);
       } catch (error) {
@@ -402,10 +416,52 @@
         
         stockTimestamp.textContent = `Last updated: ${new Date().toLocaleString()}`;
         updateStockStatus(true, `Stock data loaded successfully`);
+        
+        return stockData;
       } catch (error) {
         console.error('Error fetching stock:', error);
         stockContainer.innerHTML = `<div class="error">Error loading stock data: ${error.message}</div>`;
         updateStockStatus(false, `Error: ${error.message}`);
+        return null;
+      }
+    }
+
+    // Enhanced stock fetch with comparison
+    async function fetchStockWithComparison() {
+      console.log('📦 Fetching stock with comparison...');
+      
+      const newStockData = await fetchStock();
+      
+      if (newStockData) {
+        const stockUnchanged = compareStockData(newStockData, previousStockData);
+        
+        if (stockUnchanged) {
+          console.log('🔄 Stock unchanged, scheduling refresh in 10 seconds...');
+          updateStockStatus(true, 'Stock unchanged - Auto-refresh in 10 seconds');
+          
+          // Clear any existing timeout
+          if (stockRefreshTimeout) {
+            clearTimeout(stockRefreshTimeout);
+          }
+          
+          // Set new timeout for 10 seconds
+          stockRefreshTimeout = setTimeout(() => {
+            console.log('🔄 Auto-refreshing stock after 10 seconds...');
+            fetchStockWithComparison();
+          }, 10000);
+        } else {
+          console.log('✅ Stock changed, no need for auto-refresh');
+          updateStockStatus(true, 'Stock updated successfully');
+          
+          // Clear any existing timeout since stock changed
+          if (stockRefreshTimeout) {
+            clearTimeout(stockRefreshTimeout);
+            stockRefreshTimeout = null;
+          }
+        }
+        
+        // Update previous stock data
+        previousStockData = JSON.parse(JSON.stringify(newStockData));
       }
     }
 
@@ -455,6 +511,12 @@
     }
 
     function refreshStock() {
+      // Clear any pending auto-refresh
+      if (stockRefreshTimeout) {
+        clearTimeout(stockRefreshTimeout);
+        stockRefreshTimeout = null;
+      }
+      
       fetchStock();
     }
 
@@ -497,6 +559,11 @@
     document.addEventListener('visibilitychange', function () {
       if (document.hidden) {
         stopTimerUpdates();
+        // Clear any pending stock refresh when page is hidden
+        if (stockRefreshTimeout) {
+          clearTimeout(stockRefreshTimeout);
+          stockRefreshTimeout = null;
+        }
       } else {
         startTimerUpdates();
         // Also refresh stock when page becomes visible again
@@ -507,6 +574,10 @@
     // Cleanup on page unload
     window.addEventListener('beforeunload', function () {
       stopTimerUpdates();
+      if (stockRefreshTimeout) {
+        clearTimeout(stockRefreshTimeout);
+        stockRefreshTimeout = null;
+      }
     });
 
     // Initialize
@@ -516,6 +587,12 @@
       startTimerUpdates();
       fetchStock(); // Initial stock load only
       checkResetFromURL();
+      
+      // Set up manual refresh button
+      const refreshBtn = document.getElementById('refreshStockBtn');
+      if (refreshBtn) {
+        refreshBtn.addEventListener('click', refreshStock);
+      }
     }
 
     // Start when page is ready
