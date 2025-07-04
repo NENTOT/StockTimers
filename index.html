@@ -392,12 +392,14 @@
     // Stock functions
     async function fetchStock() {
       try {
+        console.log('📦 Fetching stock data...');
         stockContainer.innerHTML = '<div class="loading">Loading stock data...</div>';
         
         const response = await fetch(`${STOCK_API_URL}/stock/GetStock`);
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
         const stockData = await response.json();
+        console.log('📦 Stock data received:', stockData);
         displayStock(stockData);
         
         stockTimestamp.textContent = `Last updated: ${new Date().toLocaleString()}`;
@@ -499,6 +501,8 @@
         stopTimerUpdates();
       } else {
         startTimerUpdates();
+        // Also refresh stock when page becomes visible again
+        fetchStock();
       }
     });
 
