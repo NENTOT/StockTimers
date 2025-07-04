@@ -83,25 +83,6 @@
       color: #dc3545;
     }
 
-    .timer-button {
-      background-color: #007bff;
-      color: white;
-      border: none;
-      padding: 6px 12px;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 12px;
-    }
-
-    .timer-button:hover {
-      background-color: #0056b3;
-    }
-
-    .timer-button:disabled {
-      background-color: #ccc;
-      cursor: not-allowed;
-    }
-
     .status {
       text-align: center;
       padding: 10px;
@@ -225,19 +206,16 @@
       <div class="timer" id="seed-timer">
         <div class="timer-label">🌱 Seed/Gear Restock</div>
         <div class="timer-time" id="seedTimer">--:--</div>
-        <button class="timer-button" onclick="resetTimer('seedTimer')" id="seedResetBtn">Reset</button>
       </div>
 
       <div class="timer" id="egg-timer">
         <div class="timer-label">🥚 Egg Restock</div>
         <div class="timer-time" id="eggTimer">--:--</div>
-        <button class="timer-button" onclick="resetTimer('eggTimer')" id="eggResetBtn">Reset</button>
       </div>
 
       <div class="timer" id="cosmetic-timer">
         <div class="timer-label">💄 Cosmetic Restock</div>
         <div class="timer-time" id="cosmeticTimer">--:--:--</div>
-        <button class="timer-button" onclick="resetTimer('cosmeticTimer')" id="cosmeticResetBtn">Reset</button>
       </div>
     </div>
 
@@ -262,9 +240,8 @@
   </div>
 
  <script>
-    // API Configuration
-    const TIMER_API_URL = 'https://timerapi-lzn3.onrender.com/api';
-    const STOCK_API_URL = 'https://grow-a-garden-api-4ses.onrender.com/api';
+    // API Configuration - Now using single API for both stock and timers
+    const API_BASE_URL = 'https://grow-a-garden-api-4ses.onrender.com/api';
     const UPDATE_INTERVAL = 1000; // 1 second for timers
 
     // State management
@@ -292,10 +269,18 @@
     const stockContainer = document.getElementById('stock-container');
     const stockTimestamp = document.getElementById('stock-timestamp');
 
-    const resetButtons = {
-      seedTimer: document.getElementById('seedResetBtn'),
-      eggTimer: document.getElementById('eggResetBtn'),
-      cosmeticTimer: document.getElementById('cosmeticResetBtn')
+    // Timer configuration - restock times in seconds
+    const TIMER_CONFIG = {
+      seedTimer: { duration: 300, label: 'Seed/Gear Restock' }, // 5 minutes
+      eggTimer: { duration: 900, label: 'Egg Restock' }, // 15 minutes
+      cosmeticTimer: { duration: 3600, label: 'Cosmetic Restock' } // 1 hour
+    };
+
+    // Timer state
+    let timerState = {
+      seedTimer: { remaining: 0, active: false },
+      eggTimer: { remaining: 0, active: false },
+      cosmeticTimer: { remaining: 0, active: false }
     };
 
     // Utility functions
@@ -314,13 +299,11 @@
     function updateTimerStatus(connected) {
       isTimerConnected = connected;
       if (connected) {
-        timerStatusElement.textContent = 'Connected to timer service';
+        timerStatusElement.textContent = 'Timer service active';
         timerStatusElement.className = 'status connected';
-        Object.values(resetButtons).forEach(btn => btn.disabled = false);
       } else {
-        timerStatusElement.textContent = 'Disconnected from timer service - Retrying...';
+        timerStatusElement.textContent = 'Timer service unavailable';
         timerStatusElement.className = 'status disconnected';
-        Object.values(resetButtons).forEach(btn => btn.disabled = true);
         Object.values(timerElements).forEach(el => el.textContent = '--:--');
       }
     }
@@ -340,7 +323,7 @@
 
     // Function to compare stock data
     function compareStockData(newData, oldData) {
-      if (!oldData) return false; // No previous data to compare
+      if (!oldData) return false;
       
       try {
         return JSON.stringify(newData) === JSON.stringify(oldData);
@@ -350,56 +333,137 @@
       }
     }
 
-    // Timer functions
-    async function fetchTimers() {
+    // Timer functions - now using internal timer logic
+    function initializeTimers() {
+      // Try to get timer data from the API, fallback to local timers
+      fetchTimerData().then(success => {
+        if (success) {
+          updateTimerStatus(true);
+        } else {
+          console.log('API timer data not available, using local timers');
+          startLocalTimers();
+          updateTimerStatus(true);
+        }
+      });
+    }
+
+    async function fetchTimerData() {
       try {
-        const response = await fetch(`${TIMER_API_URL}/timers`);
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        // Try common timer endpoints
+        const endpoints = [
+          `${API_BASE_URL}/timers`,
+          `${API_BASE_URL}/timer`,
+          `${API_BASE_URL}/restock-timer`,
+          `${API_BASE_URL}/stock-timer`
+        ];
 
-        const timers = await response.json();
-
-        Object.entries(timers).forEach(([timerName, timerData]) => {
-          const element = timerElements[timerName];
-          const container = timerContainers[timerName];
-
-          if (element && container) {
-            const remaining = timerData.remaining;
-            const isExpired = remaining <= 0;
-
-            element.textContent = isExpired ? 'READY!' : formatTime(remaining);
-            element.className = isExpired ? 'timer-time expired' : 'timer-time';
-            container.className = isExpired ? 'timer expired' : 'timer';
-
-            // ✅ Auto-refresh stock when timer expires
-            if (isExpired && element.dataset.expired !== 'true') {
-              element.dataset.expired = 'true'; // mark as handled
-              console.log(`⏰ ${timerName} expired, refreshing stock...`);
-              fetchStockWithComparison(); // 🟢 Refresh stock with comparison
-            } else if (!isExpired) {
-              element.dataset.expired = ''; // reset state
+        for (const endpoint of endpoints) {
+          try {
+            const response = await fetch(endpoint);
+            if (response.ok) {
+              const data = await response.json();
+              console.log('Timer data received:', data);
+              
+              // Process timer data if available
+              if (data && typeof data === 'object') {
+                processTimerData(data);
+                return true;
+              }
             }
+          } catch (error) {
+            console.log(`Timer endpoint ${endpoint} not available:`, error.message);
           }
-        });
-
-        if (!isTimerConnected) updateTimerStatus(true);
+        }
+        return false;
       } catch (error) {
-        console.error('Error fetching timers:', error);
-        if (isTimerConnected) updateTimerStatus(false);
+        console.error('Error fetching timer data:', error);
+        return false;
       }
     }
 
-    async function resetTimer(timerName) {
-      try {
-        const response = await fetch(`${TIMER_API_URL}/timers/${timerName}/reset`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
-        });
+    function processTimerData(data) {
+      // Process timer data from API
+      // This will need to be adapted based on the actual API response format
+      Object.entries(data).forEach(([key, value]) => {
+        if (timerElements[key] && typeof value === 'object' && value.remaining !== undefined) {
+          timerState[key] = {
+            remaining: Math.max(0, value.remaining),
+            active: true
+          };
+        }
+      });
+    }
 
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-        await fetchTimers();
-      } catch (error) {
-        console.error('Error resetting timer:', error);
-        alert('Failed to reset timer. Please try again.');
+    function startLocalTimers() {
+      // Initialize local timers if API timers are not available
+      const now = Date.now();
+      
+      Object.keys(TIMER_CONFIG).forEach(timerName => {
+        const stored = localStorage.getItem(`timer_${timerName}`);
+        if (stored) {
+          const { startTime, duration } = JSON.parse(stored);
+          const elapsed = Math.floor((now - startTime) / 1000);
+          timerState[timerName] = {
+            remaining: Math.max(0, duration - elapsed),
+            active: true
+          };
+        } else {
+          // Start new timer
+          timerState[timerName] = {
+            remaining: TIMER_CONFIG[timerName].duration,
+            active: true
+          };
+          localStorage.setItem(`timer_${timerName}`, JSON.stringify({
+            startTime: now,
+            duration: TIMER_CONFIG[timerName].duration
+          }));
+        }
+      });
+    }
+
+    function updateTimerDisplay() {
+      Object.entries(timerState).forEach(([timerName, state]) => {
+        const element = timerElements[timerName];
+        const container = timerContainers[timerName];
+
+        if (element && container && state.active) {
+          const isExpired = state.remaining <= 0;
+
+          element.textContent = isExpired ? 'READY!' : formatTime(state.remaining);
+          element.className = isExpired ? 'timer-time expired' : 'timer-time';
+          container.className = isExpired ? 'timer expired' : 'timer';
+
+          // Auto-refresh stock when timer expires
+          if (isExpired && element.dataset.expired !== 'true') {
+            element.dataset.expired = 'true';
+            console.log(`⏰ ${timerName} expired, refreshing stock...`);
+            fetchStockWithComparison();
+            
+            // Reset timer for next cycle
+            resetLocalTimer(timerName);
+          } else if (!isExpired) {
+            element.dataset.expired = '';
+          }
+
+          // Countdown local timers
+          if (state.remaining > 0) {
+            state.remaining--;
+          }
+        }
+      });
+    }
+
+    function resetLocalTimer(timerName) {
+      if (TIMER_CONFIG[timerName]) {
+        const now = Date.now();
+        timerState[timerName] = {
+          remaining: TIMER_CONFIG[timerName].duration,
+          active: true
+        };
+        localStorage.setItem(`timer_${timerName}`, JSON.stringify({
+          startTime: now,
+          duration: TIMER_CONFIG[timerName].duration
+        }));
       }
     }
 
@@ -408,7 +472,7 @@
       try {
         stockContainer.innerHTML = '<div class="loading">Loading stock data...</div>';
         
-        const response = await fetch(`${STOCK_API_URL}/stock/GetStock`);
+        const response = await fetch(`${API_BASE_URL}/stock/GetStock`);
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
         const stockData = await response.json();
@@ -439,12 +503,10 @@
           console.log('🔄 Stock unchanged, scheduling refresh in 10 seconds...');
           updateStockStatus(true, 'Stock unchanged - Auto-refresh in 10 seconds');
           
-          // Clear any existing timeout
           if (stockRefreshTimeout) {
             clearTimeout(stockRefreshTimeout);
           }
           
-          // Set new timeout for 10 seconds
           stockRefreshTimeout = setTimeout(() => {
             console.log('🔄 Auto-refreshing stock after 10 seconds...');
             fetchStockWithComparison();
@@ -453,14 +515,12 @@
           console.log('✅ Stock changed, no need for auto-refresh');
           updateStockStatus(true, 'Stock updated successfully');
           
-          // Clear any existing timeout since stock changed
           if (stockRefreshTimeout) {
             clearTimeout(stockRefreshTimeout);
             stockRefreshTimeout = null;
           }
         }
         
-        // Update previous stock data
         previousStockData = JSON.parse(JSON.stringify(newStockData));
       }
     }
@@ -511,7 +571,6 @@
     }
 
     function refreshStock() {
-      // Clear any pending auto-refresh
       if (stockRefreshTimeout) {
         clearTimeout(stockRefreshTimeout);
         stockRefreshTimeout = null;
@@ -520,32 +579,13 @@
       fetchStock();
     }
 
-    // URL parameter handling
-    function checkResetFromURL() {
-      const params = new URLSearchParams(window.location.search);
-      const resetTarget = params.get("reset");
-
-      const timerMap = {
-        'seed': 'seedTimer',
-        'egg': 'eggTimer',
-        'cosmetic': 'cosmeticTimer'
-      };
-
-      if (resetTarget && timerMap[resetTarget]) {
-        resetTimer(timerMap[resetTarget]);
-      }
-
-      if (resetTarget) {
-        const url = new URL(window.location);
-        url.searchParams.delete('reset');
-        window.history.replaceState({}, '', url);
-      }
-    }
-
     // Update intervals
     function startTimerUpdates() {
-      fetchTimers();
-      timerUpdateInterval = setInterval(fetchTimers, UPDATE_INTERVAL);
+      // Try to fetch timer data first, then fall back to local timers
+      initializeTimers();
+      timerUpdateInterval = setInterval(() => {
+        updateTimerDisplay();
+      }, UPDATE_INTERVAL);
     }
 
     function stopTimerUpdates() {
@@ -559,14 +599,12 @@
     document.addEventListener('visibilitychange', function () {
       if (document.hidden) {
         stopTimerUpdates();
-        // Clear any pending stock refresh when page is hidden
         if (stockRefreshTimeout) {
           clearTimeout(stockRefreshTimeout);
           stockRefreshTimeout = null;
         }
       } else {
         startTimerUpdates();
-        // Also refresh stock when page becomes visible again
         fetchStock();
       }
     });
@@ -585,14 +623,7 @@
       updateTimerStatus(false);
       updateStockStatus(false);
       startTimerUpdates();
-      fetchStock(); // Initial stock load only
-      checkResetFromURL();
-      
-      // Set up manual refresh button
-      const refreshBtn = document.getElementById('refreshStockBtn');
-      if (refreshBtn) {
-        refreshBtn.addEventListener('click', refreshStock);
-      }
+      fetchStock();
     }
 
     // Start when page is ready
