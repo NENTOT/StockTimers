@@ -245,8 +245,8 @@
   </div>
 
   <script>
-    // API Configuration
-    const API_BASE_URL = 'https://grow-a-garden-api-4ses.onrender.com/api';
+    // API Configuration - Fixed endpoints
+    const API_BASE_URL = 'https://grow-a-garden-api-4ses.onrender.com';
     const UPDATE_INTERVAL = 1000; // 1 second for timers
 
     // State management
@@ -338,9 +338,9 @@
       }
     }
 
-    // Fetch restock times from API
+    // Fetch restock times from API - Fixed endpoints
     async function fetchRestockTimes() {
-      // Try multiple possible endpoints
+      // Corrected endpoints based on the GitHub repo structure
       const endpoints = [
         `${API_BASE_URL}/GetRestockTime`,
         `${API_BASE_URL}/restock`,
@@ -375,6 +375,8 @@
             updateTimerDisplay();
             if (!isConnected) updateConnectionStatus(true);
             return; // Success, exit the function
+          } else {
+            console.log(`Endpoint ${endpoint} returned ${response.status}: ${response.statusText}`);
           }
         } catch (error) {
           console.log(`Endpoint ${endpoint} failed:`, error.message);
@@ -453,12 +455,13 @@
       });
     }
 
-    // Stock functions
+    // Stock functions - Fixed endpoint
     async function fetchStock() {
       try {
         stockContainer.innerHTML = '<div class="loading">Loading stock data...</div>';
         
-        const response = await fetch(`${API_BASE_URL}/stock/GetStock`);
+        // Fixed stock endpoint - removed /api/ prefix
+        const response = await fetch(`${API_BASE_URL}/GetStock`);
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
         const stockData = await response.json();
