@@ -218,24 +218,9 @@
         <div class="timer-time" id="eggTimer">--:--</div>
       </div>
 
-      <div class="timer" id="honey-timer">
-        <div class="timer-label">🍯 Honey Restock</div>
-        <div class="timer-time" id="honeyTimer">--:--</div>
-      </div>
-
       <div class="timer" id="cosmetic-timer">
         <div class="timer-label">💄 Cosmetic Restock</div>
         <div class="timer-time" id="cosmeticTimer">--:--:--</div>
-      </div>
-
-      <div class="timer" id="easter-timer">
-        <div class="timer-label">🐰 Easter Restock</div>
-        <div class="timer-time" id="easterTimer">--:--:--</div>
-      </div>
-
-      <div class="timer" id="night-timer">
-        <div class="timer-label">🌙 Night Restock</div>
-        <div class="timer-time" id="nightTimer">--:--:--</div>
       </div>
     </div>
 
@@ -276,20 +261,14 @@
       seedTimer: document.getElementById('seedTimer'),
       gearTimer: document.getElementById('gearTimer'),
       eggTimer: document.getElementById('eggTimer'),
-      honeyTimer: document.getElementById('honeyTimer'),
-      cosmeticTimer: document.getElementById('cosmeticTimer'),
-      easterTimer: document.getElementById('easterTimer'),
-      nightTimer: document.getElementById('nightTimer')
+      cosmeticTimer: document.getElementById('cosmeticTimer')
     };
 
     const timerContainers = {
       seedTimer: document.getElementById('seed-timer'),
       gearTimer: document.getElementById('gear-timer'),
       eggTimer: document.getElementById('egg-timer'),
-      honeyTimer: document.getElementById('honey-timer'),
-      cosmeticTimer: document.getElementById('cosmetic-timer'),
-      easterTimer: document.getElementById('easter-timer'),
-      nightTimer: document.getElementById('night-timer')
+      cosmeticTimer: document.getElementById('cosmetic-timer')
     };
 
     const timerStatusElement = document.getElementById('timer-status');
@@ -302,10 +281,7 @@
       'seedTimer': 'seed',
       'gearTimer': 'gear',
       'eggTimer': 'egg',
-      'honeyTimer': 'honey',
-      'cosmeticTimer': 'cosmetic',
-      'easterTimer': 'easter',
-      'nightTimer': 'night'
+      'cosmeticTimer': 'cosmetic'
     };
 
     // Utility functions
@@ -366,7 +342,6 @@
     async function fetchRestockTimes() {
       // Try multiple possible endpoints
       const endpoints = [
-        `${API_BASE_URL}/restock/GetRestockTime`,
         `${API_BASE_URL}/GetRestockTime`,
         `${API_BASE_URL}/restock`,
         `${API_BASE_URL}/timers`
@@ -422,10 +397,7 @@
           seed: 5,    // Seeds restock every 5 minutes
           gear: 5,    // Gear restocks every 5 minutes  
           egg: 30,    // Eggs restock every 30 minutes
-          honey: 60,  // Honey restocks every 60 minutes
-          cosmetic: 180, // Cosmetics restock every 3 hours
-          easter: 180,   // Easter items restock every 3 hours
-          night: 180     // Night items restock every 3 hours
+          cosmetic: 180 // Cosmetics restock every 3 hours
         };
 
         restockTimes = {};
@@ -546,10 +518,7 @@
         { key: 'seedsStock', name: 'Seeds', emoji: '🌱' },
         { key: 'gearStock', name: 'Gears', emoji: '⚙️' },
         { key: 'eggStock', name: 'Eggs', emoji: '🥚' },
-        { key: 'honeyStock', name: 'Honey', emoji: '🍯' },
-        { key: 'cosmeticsStock', name: 'Cosmetics', emoji: '💄' },
-        { key: 'easterStock', name: 'Easter Items', emoji: '🐰' },
-        { key: 'nightStock', name: 'Night Items', emoji: '🌙' }
+        { key: 'cosmeticsStock', name: 'Cosmetics', emoji: '💄' }
       ];
 
       categories.forEach(category => {
@@ -602,8 +571,8 @@
       fetchStock();
       timerUpdateInterval = setInterval(() => {
         updateTimerDisplay(); // Update display every second
-        // Fetch new restock times every 30 seconds
-        if (Date.now() % 30000 < 1000) {
+        // Try to fetch new restock times every 60 seconds (less frequent to avoid API issues)
+        if (Date.now() % 60000 < 1000) {
           fetchRestockTimes();
         }
       }, UPDATE_INTERVAL);
