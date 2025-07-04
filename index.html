@@ -103,6 +103,12 @@
       border: 1px solid #f5c6cb;
     }
 
+    .status.fallback {
+      background-color: #fff3cd;
+      color: #856404;
+      border: 1px solid #ffeaa7;
+    }
+
     .stock-category {
       margin-bottom: 20px;
       background: #f8f9fa;
@@ -170,6 +176,11 @@
       background-color: #218838;
     }
 
+    .refresh-button:disabled {
+      background-color: #6c757d;
+      cursor: not-allowed;
+    }
+
     .loading {
       text-align: center;
       color: #666;
@@ -182,6 +193,17 @@
       padding: 10px;
       border-radius: 5px;
       margin: 10px 0;
+    }
+
+    .debug-info {
+      background-color: #f8f9fa;
+      border: 1px solid #dee2e6;
+      border-radius: 5px;
+      padding: 10px;
+      margin: 10px 0;
+      font-family: monospace;
+      font-size: 12px;
+      color: #495057;
     }
 
     @media (max-width: 768px) {
@@ -222,6 +244,11 @@
         <div class="timer-label">💄 Cosmetic Restock</div>
         <div class="timer-time" id="cosmeticTimer">--:--:--</div>
       </div>
+
+      <div id="debug-timer" class="debug-info" style="display: none;">
+        <div><strong>Debug Info:</strong></div>
+        <div id="debug-timer-content"></div>
+      </div>
     </div>
 
     <!-- Stock Section -->
@@ -241,21 +268,32 @@
       <div id="stock-container">
         <div class="loading">Loading stock data...</div>
       </div>
+
+      <div id="debug-stock" class="debug-info" style="display: none;">
+        <div><strong>Debug Info:</strong></div>
+        <div id="debug-stock-content"></div>
+      </div>
     </div>
   </div>
 
   <script>
-    // API Configuration
-    const API_BASE_URL = 'https://grow-a-garden-api-4ses.onrender.com/api';
+    // API Configuration with multiple possible endpoints
+    const API_ENDPOINTS = {
+      primary: 'https://grow-a-garden-api-4ses.onrender.com/api',
+      fallback: 'https://grow-a-garden-api-4ses.onrender.com'
+    };
+    
     const UPDATE_INTERVAL = 1000; // 1 second for timers
+    const DEBUG_MODE = true; // Set to false to hide debug info
 
     // State management
     let timerUpdateInterval;
     let isConnected = false;
-    let previousStockText = null;
+    let previousStockData = null;
     let stockRefreshTimeout = null;
     let restockTimes = {};
-    let expiredTimers = new Set(); // Track which timers have expired
+    let currentApiBase = API_ENDPOINTS.primary;
+    let fallbackMode = false;
 
     // Timer elements
     const timerElements = {
@@ -276,6 +314,33 @@
     const stockStatusElement = document.getElementById('stock-status');
     const stockContainer = document.getElementById('stock-container');
     const stockTimestamp = document.getElementById('stock-timestamp');
+    const debugTimer = document.getElementById('debug-timer');
+    const debugStock = document.getElementById('debug-stock');
+
+    // Debug functions
+    function debugLog(message, isError = false) {
+      console.log(`[DEBUG] ${message}`);
+      if (DEBUG_MODE) {
+        const timestamp = new Date().toLocaleTimeString();
+        const debugContent = document.getElementById('debug-timer-content');
+        if (debugContent) {
+          debugContent.innerHTML += `<div style="color: ${isError ? 'red' : 'blue'}">[${timestamp}] ${message}</div>`;
+          debugTimer.style.display = 'block';
+        }
+      }
+    }
+
+    function debugStockLog(message, isError = false) {
+      console.log(`[STOCK DEBUG] ${message}`);
+      if (DEBUG_MODE) {
+        const timestamp = new Date().toLocaleTimeString();
+        const debugContent = document.getElementById('debug-stock-content');
+        if (debugContent) {
+          debugContent.innerHTML += `<div style="color: ${isError ? 'red' : 'blue'}">[${timestamp}] ${message}</div>`;
+          debugStock.style.display = 'block';
+        }
+      }
+    }
 
     // Timer mapping for API response
     const timerMapping = {
@@ -298,10 +363,10 @@
       }
     }
 
-    function updateTimerStatus(connected) {
+    function updateTimerStatus(connected, message = null) {
       if (connected) {
-        timerStatusElement.textContent = 'Connected to restock service';
-        timerStatusElement.className = 'status connected';
+        timerStatusElement.textContent = message || (fallbackMode ? 'Using calculated timers (API unavailable)' : 'Connected to restock service');
+        timerStatusElement.className = fallbackMode ? 'status fallback' : 'status connected';
       } else {
         timerStatusElement.textContent = 'Disconnected from restock service - Retrying...';
         timerStatusElement.className = 'status disconnected';
@@ -327,92 +392,124 @@
       updateStockStatus(connected);
     }
 
-    // Function to get stock text content for comparison
-    function getStockTextContent(stockData) {
-      if (!stockData) return null;
+    // Function to compare stock data
+    function compareStockData(newData, oldData) {
+      if (!oldData) return false;
       
       try {
-        const categories = [
-          { key: 'seedsStock', name: 'Seeds' },
-          { key: 'gearStock', name: 'Gears' },
-          { key: 'eggStock', name: 'Eggs' },
-          { key: 'cosmeticsStock', name: 'Cosmetics' }
-        ];
-
-        let textContent = '';
-        
-        categories.forEach(category => {
-          const items = stockData[category.key];
-          if (items && items.length > 0) {
-            textContent += `${category.name}:`;
-            items.forEach(item => {
-              textContent += `${item.name}=${item.value};`;
-            });
-          }
-        });
-        
-        return textContent;
+        return JSON.stringify(newData) === JSON.stringify(oldData);
       } catch (error) {
-        console.error('Error getting stock text content:', error);
-        return null;
+        console.error('Error comparing stock data:', error);
+        return false;
       }
     }
 
-    // Function to compare stock text content
-    function compareStockText(newData, previousText) {
-      if (!previousText) return false;
-      
-      const newText = getStockTextContent(newData);
-      return newText === previousText;
-    }
+    // Enhanced API request function with better error handling
+    async function apiRequest(endpoint, options = {}) {
+      const maxRetries = 3;
+      let lastError = null;
 
-    // Fetch restock times from API
-    async function fetchRestockTimes() {
-      // Try multiple possible endpoints
-      const endpoints = [
-        `${API_BASE_URL}/GetRestockTime`,
-        `${API_BASE_URL}/restock`,
-        `${API_BASE_URL}/timers`
-      ];
-
-      for (const endpoint of endpoints) {
+      for (let i = 0; i < maxRetries; i++) {
         try {
-          console.log(`Trying endpoint: ${endpoint}`);
-          const response = await fetch(endpoint);
+          debugLog(`Attempting API request to: ${endpoint} (attempt ${i + 1}/${maxRetries})`);
           
+          const response = await fetch(endpoint, {
+            ...options,
+            timeout: 10000, // 10 second timeout
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+              ...options.headers
+            }
+          });
+
           if (response.ok) {
             const data = await response.json();
-            console.log('API Response:', data);
-            
-            // Store the restock times with timestamps
-            restockTimes = {};
-            const now = Date.now();
-            
-            Object.entries(data).forEach(([key, value]) => {
-              if (typeof value === 'number') {
-                // Convert Unix timestamp to milliseconds and calculate remaining time
-                const restockTime = value * 1000; // Convert to milliseconds
-                const remaining = Math.max(0, Math.floor((restockTime - now) / 1000));
-                restockTimes[key] = {
-                  restockTime: restockTime,
-                  remaining: remaining
-                };
-              }
-            });
-
-            updateTimerDisplay();
-            if (!isConnected) updateConnectionStatus(true);
-            return; // Success, exit the function
+            debugLog(`API request successful: ${endpoint}`);
+            return { success: true, data };
+          } else {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
           }
         } catch (error) {
-          console.log(`Endpoint ${endpoint} failed:`, error.message);
-          continue; // Try next endpoint
+          lastError = error;
+          debugLog(`API request failed: ${endpoint} - ${error.message}`, true);
+          
+          if (i < maxRetries - 1) {
+            await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1))); // Progressive delay
+          }
         }
       }
-      
-      // If all endpoints fail, fall back to calculated timers
-      console.log('All restock time endpoints failed, using calculated timers');
+
+      return { success: false, error: lastError };
+    }
+
+    // Fetch restock times from API with multiple endpoint attempts
+    async function fetchRestockTimes() {
+      const possibleEndpoints = [
+        `${currentApiBase}/GetRestockTime`,
+        `${currentApiBase}/restock-times`,
+        `${currentApiBase}/restock`,
+        `${currentApiBase}/timers`,
+        `${currentApiBase}/stock/restock-times`,
+        `${currentApiBase}/api/restock-times`
+      ];
+
+      debugLog('Starting restock times fetch...');
+
+      for (const endpoint of possibleEndpoints) {
+        const result = await apiRequest(endpoint);
+        
+        if (result.success) {
+          debugLog(`Successfully fetched restock times from: ${endpoint}`);
+          processRestockTimes(result.data);
+          updateTimerStatus(true);
+          fallbackMode = false;
+          return;
+        }
+      }
+
+      // If all API endpoints fail, try the fallback API base
+      if (currentApiBase !== API_ENDPOINTS.fallback) {
+        debugLog('Trying fallback API base...');
+        currentApiBase = API_ENDPOINTS.fallback;
+        return await fetchRestockTimes();
+      }
+
+      // If everything fails, use calculated timers
+      debugLog('All API endpoints failed, using calculated timers', true);
       useCalculatedTimers();
+    }
+
+    // Process restock times from API response
+    function processRestockTimes(data) {
+      restockTimes = {};
+      const now = Date.now();
+
+      debugLog(`Processing restock times: ${JSON.stringify(data)}`);
+
+      Object.entries(data).forEach(([key, value]) => {
+        if (typeof value === 'number') {
+          // Handle different possible timestamp formats
+          let restockTime;
+          if (value > 9999999999) {
+            // Already in milliseconds
+            restockTime = value;
+          } else {
+            // Convert Unix timestamp to milliseconds
+            restockTime = value * 1000;
+          }
+          
+          const remaining = Math.max(0, Math.floor((restockTime - now) / 1000));
+          restockTimes[key] = {
+            restockTime: restockTime,
+            remaining: remaining
+          };
+          
+          debugLog(`Timer ${key}: ${remaining}s remaining`);
+        }
+      });
+
+      updateTimerDisplay();
     }
 
     // Fallback function that calculates timers based on known restock intervals
@@ -444,10 +541,13 @@
         });
 
         updateTimerDisplay();
-        updateConnectionStatus(true);
+        updateTimerStatus(true, 'Using calculated timers (API unavailable)');
+        fallbackMode = true;
+        
+        debugLog('Fallback calculated timers initialized');
         
       } catch (error) {
-        console.error('Error in calculated timers:', error);
+        debugLog(`Error in calculated timers: ${error.message}`, true);
         updateConnectionStatus(false);
       }
     }
@@ -464,90 +564,69 @@
           const timerData = restockTimes[apiKey];
           const remaining = Math.max(0, Math.floor((timerData.restockTime - now) / 1000));
           const isExpired = remaining <= 0;
-          const timerKey = `${apiKey}-timer`;
 
           element.textContent = isExpired ? 'Restocked!' : formatTime(remaining);
           element.className = isExpired ? 'timer-time expired' : 'timer-time';
           container.className = isExpired ? 'timer expired' : 'timer';
 
-          // Handle timer expiration
-          if (isExpired && !expiredTimers.has(timerKey)) {
-            expiredTimers.add(timerKey);
-            console.log(`⏰ ${apiKey} timer expired, checking for stock changes...`);
-            
-            // Check stock when timer expires
-            checkStockAfterExpiration(apiKey);
-          } else if (!isExpired && expiredTimers.has(timerKey)) {
-            // Timer reset, remove from expired set
-            expiredTimers.delete(timerKey);
+          // Auto-refresh stock when timer expires
+          if (isExpired && element.dataset.expired !== 'true') {
+            element.dataset.expired = 'true';
+            debugLog(`Timer ${apiKey} expired, refreshing stock...`);
+            fetchStockWithComparison();
+          } else if (!isExpired) {
+            element.dataset.expired = '';
           }
         }
       });
     }
 
-    // Check stock after timer expiration
-    async function checkStockAfterExpiration(timerType) {
-      console.log(`📦 Checking stock after ${timerType} timer expiration...`);
-      
-      // Fetch current stock
-      const currentStockData = await fetchStock();
-      
-      if (currentStockData) {
-        const currentStockText = getStockTextContent(currentStockData);
-        
-        // Compare with previous stock text
-        if (previousStockText && currentStockText === previousStockText) {
-          console.log(`🔄 Stock unchanged after ${timerType} timer expiration, auto-refreshing...`);
-          updateStockStatus(true, `Stock unchanged after ${timerType} restock - Auto-refreshing...`);
-          
-          // Trigger refresh after a short delay
-          setTimeout(() => {
-            console.log(`🔄 Auto-triggering refresh for ${timerType}...`);
-            document.getElementById('refreshAllBtn').click();
-          }, 2000);
-        } else {
-          console.log(`✅ Stock changed after ${timerType} timer expiration`);
-          updateStockStatus(true, `Stock updated after ${timerType} restock`);
-          previousStockText = currentStockText;
-        }
-      }
-    }
-
     // Stock functions
     async function fetchStock() {
       try {
-        const response = await fetch(`${API_BASE_URL}/stock/GetStock`);
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        stockContainer.innerHTML = '<div class="loading">Loading stock data...</div>';
+        debugStockLog('Starting stock fetch...');
+        
+        const possibleEndpoints = [
+          `${currentApiBase}/stock/GetStock`,
+          `${currentApiBase}/GetStock`,
+          `${currentApiBase}/stock`,
+          `${currentApiBase}/inventory`
+        ];
 
-        const stockData = await response.json();
-        return stockData;
+        for (const endpoint of possibleEndpoints) {
+          const result = await apiRequest(endpoint);
+          
+          if (result.success) {
+            debugStockLog(`Successfully fetched stock from: ${endpoint}`);
+            displayStock(result.data);
+            stockTimestamp.textContent = `Last updated: ${new Date().toLocaleString()}`;
+            updateStockStatus(true, 'Stock data loaded successfully');
+            return result.data;
+          }
+        }
+
+        throw new Error('All stock endpoints failed');
+        
       } catch (error) {
-        console.error('Error fetching stock:', error);
+        debugStockLog(`Error fetching stock: ${error.message}`, true);
+        stockContainer.innerHTML = `<div class="error">Error loading stock data: ${error.message}</div>`;
+        updateStockStatus(false, `Error: ${error.message}`);
         return null;
       }
     }
 
     // Enhanced stock fetch with comparison
     async function fetchStockWithComparison() {
-      console.log('📦 Fetching stock with comparison...');
+      debugStockLog('Fetching stock with comparison...');
       
-      try {
-        stockContainer.innerHTML = '<div class="loading">Loading stock data...</div>';
-        
-        const response = await fetch(`${API_BASE_URL}/stock/GetStock`);
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-
-        const stockData = await response.json();
-        const currentStockText = getStockTextContent(stockData);
-        
-        displayStock(stockData);
-        stockTimestamp.textContent = `Last updated: ${new Date().toLocaleString()}`;
-        
-        // Compare with previous stock text
-        const stockUnchanged = compareStockText(stockData, previousStockText);
+      const newStockData = await fetchStock();
+      
+      if (newStockData) {
+        const stockUnchanged = compareStockData(newStockData, previousStockData);
         
         if (stockUnchanged) {
-          console.log('🔄 Stock unchanged, scheduling refresh in 10 seconds...');
+          debugStockLog('Stock unchanged, scheduling refresh in 10 seconds...');
           updateStockStatus(true, 'Stock unchanged - Auto-refresh in 10 seconds');
           
           if (stockRefreshTimeout) {
@@ -555,11 +634,11 @@
           }
           
           stockRefreshTimeout = setTimeout(() => {
-            console.log('🔄 Auto-refreshing stock after 10 seconds...');
+            debugStockLog('Auto-refreshing stock after 10 seconds...');
             fetchStockWithComparison();
           }, 10000);
         } else {
-          console.log('✅ Stock changed, no need for auto-refresh');
+          debugStockLog('Stock changed, no need for auto-refresh');
           updateStockStatus(true, 'Stock updated successfully');
           
           if (stockRefreshTimeout) {
@@ -568,13 +647,7 @@
           }
         }
         
-        // Update previous stock text
-        previousStockText = currentStockText;
-        
-      } catch (error) {
-        console.error('Error fetching stock:', error);
-        stockContainer.innerHTML = `<div class="error">Error loading stock data: ${error.message}</div>`;
-        updateStockStatus(false, `Error: ${error.message}`);
+        previousStockData = JSON.parse(JSON.stringify(newStockData));
       }
     }
 
@@ -588,9 +661,32 @@
         { key: 'cosmeticsStock', name: 'Cosmetics', emoji: '💄' }
       ];
 
+      // Try different possible data structures
+      const possibleStructures = [
+        stockData,
+        stockData.stock,
+        stockData.data,
+        stockData.inventory
+      ];
+
+      let validData = null;
+      for (const structure of possibleStructures) {
+        if (structure && typeof structure === 'object') {
+          validData = structure;
+          break;
+        }
+      }
+
+      if (!validData) {
+        html = '<div class="error">No valid stock data structure found</div>';
+        stockContainer.innerHTML = html;
+        return;
+      }
+
       categories.forEach(category => {
-        const items = stockData[category.key];
-        if (items && items.length > 0) {
+        const items = validData[category.key] || validData[category.key.toLowerCase()] || validData[category.name.toLowerCase()];
+        
+        if (items && Array.isArray(items) && items.length > 0) {
           html += `
             <div class="stock-category">
               <h3>${category.emoji} ${category.name} (${items.length} items)</h3>
@@ -598,10 +694,13 @@
           `;
           
           items.forEach(item => {
+            const name = item.name || item.itemName || item.item || 'Unknown';
+            const quantity = item.value || item.quantity || item.stock || item.amount || 0;
+            
             html += `
               <div class="stock-item">
-                <span class="stock-item-name">${item.name}</span>
-                <span class="stock-item-quantity">${item.value}</span>
+                <span class="stock-item-name">${name}</span>
+                <span class="stock-item-quantity">${quantity}</span>
               </div>
             `;
           });
@@ -618,10 +717,12 @@
       }
 
       stockContainer.innerHTML = html;
+      debugStockLog(`Displayed ${categories.length} stock categories`);
     }
 
     function refreshAll() {
-      console.log('🔄 Manual refresh triggered');
+      debugLog('Manual refresh triggered');
+      debugStockLog('Manual refresh triggered');
       
       // Clear any pending auto-refresh
       if (stockRefreshTimeout) {
@@ -629,18 +730,23 @@
         stockRefreshTimeout = null;
       }
       
-      // Reset expired timers tracking
-      expiredTimers.clear();
+      // Clear debug logs
+      if (DEBUG_MODE) {
+        document.getElementById('debug-timer-content').innerHTML = '';
+        document.getElementById('debug-stock-content').innerHTML = '';
+      }
       
       // Fetch both restock times and stock
       fetchRestockTimes();
-      fetchStockWithComparison();
+      fetchStock();
     }
 
     // Update intervals
     function startUpdates() {
+      debugLog('Starting update intervals...');
       fetchRestockTimes();
-      fetchStockWithComparison();
+      fetchStock();
+      
       timerUpdateInterval = setInterval(() => {
         updateTimerDisplay(); // Update display every second
         // Try to fetch new restock times every 60 seconds (less frequent to avoid API issues)
@@ -651,6 +757,7 @@
     }
 
     function stopUpdates() {
+      debugLog('Stopping update intervals...');
       if (timerUpdateInterval) {
         clearInterval(timerUpdateInterval);
         timerUpdateInterval = null;
@@ -660,12 +767,14 @@
     // Page visibility handling
     document.addEventListener('visibilitychange', function () {
       if (document.hidden) {
+        debugLog('Page hidden, stopping updates');
         stopUpdates();
         if (stockRefreshTimeout) {
           clearTimeout(stockRefreshTimeout);
           stockRefreshTimeout = null;
         }
       } else {
+        debugLog('Page visible, starting updates');
         startUpdates();
       }
     });
@@ -681,6 +790,14 @@
 
     // Initialize
     function initialize() {
+      debugLog('Initializing dashboard...');
+      
+      // Show debug panels if in debug mode
+      if (DEBUG_MODE) {
+        debugTimer.style.display = 'block';
+        debugStock.style.display = 'block';
+      }
+      
       updateConnectionStatus(false);
       startUpdates();
       
@@ -689,6 +806,8 @@
       if (refreshBtn) {
         refreshBtn.addEventListener('click', refreshAll);
       }
+      
+      debugLog('Dashboard initialized');
     }
 
     // Start when page is ready
