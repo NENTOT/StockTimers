@@ -364,91 +364,34 @@
 
     // Fetch restock times from API
     async function fetchRestockTimes() {
-      // Try multiple possible endpoints
-      const endpoints = [
-        `${API_BASE_URL}/restock/GetRestockTime`,
-        `${API_BASE_URL}/GetRestockTime`,
-        `${API_BASE_URL}/restock`,
-        `${API_BASE_URL}/timers`
-      ];
-
-      for (const endpoint of endpoints) {
-        try {
-          console.log(`Trying endpoint: ${endpoint}`);
-          const response = await fetch(endpoint);
-          
-          if (response.ok) {
-            const data = await response.json();
-            console.log('API Response:', data);
-            
-            // Store the restock times with timestamps
-            restockTimes = {};
-            const now = Date.now();
-            
-            Object.entries(data).forEach(([key, value]) => {
-              if (typeof value === 'number') {
-                // Convert Unix timestamp to milliseconds and calculate remaining time
-                const restockTime = value * 1000; // Convert to milliseconds
-                const remaining = Math.max(0, Math.floor((restockTime - now) / 1000));
-                restockTimes[key] = {
-                  restockTime: restockTime,
-                  remaining: remaining
-                };
-              }
-            });
-
-            updateTimerDisplay();
-            if (!isConnected) updateConnectionStatus(true);
-            return; // Success, exit the function
-          }
-        } catch (error) {
-          console.log(`Endpoint ${endpoint} failed:`, error.message);
-          continue; // Try next endpoint
-        }
-      }
-      
-      // If all endpoints fail, fall back to calculated timers
-      console.log('All restock time endpoints failed, using calculated timers');
-      useCalculatedTimers();
-    }
-
-    // Fallback function that calculates timers based on known restock intervals
-    function useCalculatedTimers() {
       try {
+        const response = await fetch(`${API_BASE_URL}/restock/GetRestockTime`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+        const data = await response.json();
+        
+        // Store the restock times with timestamps
+        restockTimes = {};
         const now = Date.now();
         
-        // Known restock intervals (in minutes)
-        const intervals = {
-          seed: 5,    // Seeds restock every 5 minutes
-          gear: 5,    // Gear restocks every 5 minutes  
-          egg: 30,    // Eggs restock every 30 minutes
-          honey: 60,  // Honey restocks every 60 minutes
-          cosmetic: 180, // Cosmetics restock every 3 hours
-          easter: 180,   // Easter items restock every 3 hours
-          night: 180     // Night items restock every 3 hours
-        };
-
-        restockTimes = {};
-        
-        Object.entries(intervals).forEach(([key, intervalMinutes]) => {
-          const intervalMs = intervalMinutes * 60 * 1000;
-          const timeSinceEpoch = now;
-          const timeIntoCurrentInterval = timeSinceEpoch % intervalMs;
-          const nextRestockTime = now + (intervalMs - timeIntoCurrentInterval);
-          const remaining = Math.max(0, Math.floor((nextRestockTime - now) / 1000));
-          
-          restockTimes[key] = {
-            restockTime: nextRestockTime,
-            remaining: remaining
-          };
+        Object.entries(data).forEach(([key, value]) => {
+          if (typeof value === 'number') {
+            // Convert Unix timestamp to milliseconds and calculate remaining time
+            const restockTime = value * 1000; // Convert to milliseconds
+            const remaining = Math.max(0, Math.floor((restockTime - now) / 1000));
+            restockTimes[key] = {
+              restockTime: restockTime,
+              remaining: remaining
+            };
+          }
         });
 
         updateTimerDisplay();
-        updateConnectionStatus(true);
+        if (!isConnected) updateConnectionStatus(true);
         
       } catch (error) {
-        console.error('Error in calculated timers:', error);
-        updateConnectionStatus(false);
+        console.error('Error fetching restock times:', error);
+        if (isConnected) updateConnectionStatus(false);
       }
     }
 
