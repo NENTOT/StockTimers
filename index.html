@@ -261,14 +261,20 @@
       seedTimer: document.getElementById('seedTimer'),
       gearTimer: document.getElementById('gearTimer'),
       eggTimer: document.getElementById('eggTimer'),
-      cosmeticTimer: document.getElementById('cosmeticTimer')
+      honeyTimer: document.getElementById('honeyTimer'),
+      cosmeticTimer: document.getElementById('cosmeticTimer'),
+      easterTimer: document.getElementById('easterTimer'),
+      nightTimer: document.getElementById('nightTimer')
     };
 
     const timerContainers = {
       seedTimer: document.getElementById('seed-timer'),
       gearTimer: document.getElementById('gear-timer'),
       eggTimer: document.getElementById('egg-timer'),
-      cosmeticTimer: document.getElementById('cosmetic-timer')
+      honeyTimer: document.getElementById('honey-timer'),
+      cosmeticTimer: document.getElementById('cosmetic-timer'),
+      easterTimer: document.getElementById('easter-timer'),
+      nightTimer: document.getElementById('night-timer')
     };
 
     const timerStatusElement = document.getElementById('timer-status');
@@ -281,7 +287,10 @@
       'seedTimer': 'seed',
       'gearTimer': 'gear',
       'eggTimer': 'egg',
-      'cosmeticTimer': 'cosmetic'
+      'honeyTimer': 'honey',
+      'cosmeticTimer': 'cosmetic',
+      'easterTimer': 'easter',
+      'nightTimer': 'night'
     };
 
     // Utility functions
@@ -342,6 +351,7 @@
     async function fetchRestockTimes() {
       // Try multiple possible endpoints
       const endpoints = [
+        `${API_BASE_URL}/restock/GetRestockTime`,
         `${API_BASE_URL}/GetRestockTime`,
         `${API_BASE_URL}/restock`,
         `${API_BASE_URL}/timers`
@@ -397,7 +407,10 @@
           seed: 5,    // Seeds restock every 5 minutes
           gear: 5,    // Gear restocks every 5 minutes  
           egg: 30,    // Eggs restock every 30 minutes
-          cosmetic: 180 // Cosmetics restock every 3 hours
+          honey: 60,  // Honey restocks every 60 minutes
+          cosmetic: 180, // Cosmetics restock every 3 hours
+          easter: 180,   // Easter items restock every 3 hours
+          night: 180     // Night items restock every 3 hours
         };
 
         restockTimes = {};
@@ -518,7 +531,10 @@
         { key: 'seedsStock', name: 'Seeds', emoji: '🌱' },
         { key: 'gearStock', name: 'Gears', emoji: '⚙️' },
         { key: 'eggStock', name: 'Eggs', emoji: '🥚' },
-        { key: 'cosmeticsStock', name: 'Cosmetics', emoji: '💄' }
+        { key: 'honeyStock', name: 'Honey', emoji: '🍯' },
+        { key: 'cosmeticsStock', name: 'Cosmetics', emoji: '💄' },
+        { key: 'easterStock', name: 'Easter Items', emoji: '🐰' },
+        { key: 'nightStock', name: 'Night Items', emoji: '🌙' }
       ];
 
       categories.forEach(category => {
