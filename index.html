@@ -340,9 +340,11 @@
 
     // Fetch restock times from API - Fixed endpoints
     async function fetchRestockTimes() {
-      // Corrected endpoints based on the GitHub repo structure
+      // Try different possible endpoint variations
       const endpoints = [
         `${API_BASE_URL}/GetRestockTime`,
+        `${API_BASE_URL}/api/GetRestockTime`,
+        `${API_BASE_URL}/GetRestockTime.js`,
         `${API_BASE_URL}/restock`,
         `${API_BASE_URL}/timers`
       ];
@@ -350,7 +352,13 @@
       for (const endpoint of endpoints) {
         try {
           console.log(`Trying endpoint: ${endpoint}`);
-          const response = await fetch(endpoint);
+          const response = await fetch(endpoint, {
+            method: 'GET',
+            headers: {
+              'Accept': 'application/json',
+              'Content-Type': 'application/json'
+            }
+          });
           
           if (response.ok) {
             const data = await response.json();
@@ -460,11 +468,43 @@
       try {
         stockContainer.innerHTML = '<div class="loading">Loading stock data...</div>';
         
-        // Fixed stock endpoint - removed /api/ prefix
-        const response = await fetch(`${API_BASE_URL}/GetStock`);
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        // Try different possible stock endpoints
+        const endpoints = [
+          `${API_BASE_URL}/GetStock`,
+          `${API_BASE_URL}/api/GetStock`,
+          `${API_BASE_URL}/GetStock.js`,
+          `${API_BASE_URL}/stock`
+        ];
 
-        const stockData = await response.json();
+        let stockData = null;
+        for (const endpoint of endpoints) {
+          try {
+            console.log(`Trying stock endpoint: ${endpoint}`);
+            const response = await fetch(endpoint, {
+              method: 'GET',
+              headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+              }
+            });
+            
+            if (response.ok) {
+              stockData = await response.json();
+              console.log('Stock API Response:', stockData);
+              break; // Success, exit the loop
+            } else {
+              console.log(`Stock endpoint ${endpoint} returned ${response.status}: ${response.statusText}`);
+            }
+          } catch (error) {
+            console.log(`Stock endpoint ${endpoint} failed:`, error.message);
+            continue;
+          }
+        }
+
+        if (!stockData) {
+          throw new Error('All stock endpoints failed');
+        }
+
         displayStock(stockData);
         
         stockTimestamp.textContent = `Last updated: ${new Date().toLocaleString()}`;
