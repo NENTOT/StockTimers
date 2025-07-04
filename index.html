@@ -235,7 +235,7 @@
       <div class="timestamp" id="stock-timestamp">Last updated: --</div>
 
       <button class="refresh-button" onclick="refreshAll()" id="refreshAllBtn">
-        🔄 Refresh All Data
+        🔄 Refresh
       </button>
 
       <div id="stock-container">
@@ -437,7 +437,7 @@
           const remaining = Math.max(0, Math.floor((timerData.restockTime - now) / 1000));
           const isExpired = remaining <= 0;
 
-          element.textContent = isExpired ? 'READY!' : formatTime(remaining);
+          element.textContent = isExpired ? 'Reastocked!' : formatTime(remaining);
           element.className = isExpired ? 'timer-time expired' : 'timer-time';
           container.className = isExpired ? 'timer expired' : 'timer';
 
