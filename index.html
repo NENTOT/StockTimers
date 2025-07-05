@@ -185,8 +185,144 @@
     }
 
     @media (max-width: 768px) {
+      body {
+        padding: 10px;
+      }
+
+      h1 {
+        font-size: 24px;
+        margin-bottom: 20px;
+      }
+
       .main-container {
         grid-template-columns: 1fr;
+        gap: 20px;
+      }
+
+      .timer-section, .stock-section {
+        padding: 15px;
+        border-radius: 8px;
+      }
+
+      .section-title {
+        font-size: 20px;
+        margin-bottom: 15px;
+      }
+
+      .timer {
+        padding: 12px;
+        margin: 10px 0;
+        flex-direction: column;
+        text-align: center;
+        gap: 8px;
+      }
+
+      .timer-label {
+        font-size: 14px;
+        margin-bottom: 5px;
+      }
+
+      .timer-time {
+        font-size: 18px;
+      }
+
+      .stock-section {
+        max-height: none;
+        overflow-y: visible;
+      }
+
+      .stock-items {
+        grid-template-columns: 1fr;
+        gap: 6px;
+      }
+
+      .stock-item {
+        padding: 10px;
+        font-size: 13px;
+      }
+
+      .stock-category {
+        padding: 12px;
+        margin-bottom: 15px;
+      }
+
+      .stock-category h3 {
+        font-size: 16px;
+        margin-bottom: 8px;
+      }
+
+      .refresh-button {
+        padding: 12px 24px;
+        font-size: 16px;
+        margin: 15px auto;
+        touch-action: manipulation;
+      }
+
+      .status {
+        padding: 8px;
+        font-size: 12px;
+        margin-bottom: 15px;
+      }
+
+      .timestamp {
+        font-size: 11px;
+        margin-bottom: 10px;
+      }
+    }
+
+    @media (max-width: 480px) {
+      body {
+        padding: 8px;
+      }
+
+      h1 {
+        font-size: 20px;
+        margin-bottom: 15px;
+      }
+
+      .main-container {
+        gap: 15px;
+      }
+
+      .timer-section, .stock-section {
+        padding: 12px;
+      }
+
+      .section-title {
+        font-size: 18px;
+        margin-bottom: 12px;
+      }
+
+      .timer {
+        padding: 10px;
+        margin: 8px 0;
+      }
+
+      .timer-label {
+        font-size: 13px;
+      }
+
+      .timer-time {
+        font-size: 16px;
+      }
+
+      .stock-item {
+        padding: 8px;
+        font-size: 12px;
+      }
+
+      .stock-category {
+        padding: 10px;
+        margin-bottom: 12px;
+      }
+
+      .stock-category h3 {
+        font-size: 14px;
+      }
+
+      .refresh-button {
+        padding: 10px 20px;
+        font-size: 14px;
       }
     }
   </style>
