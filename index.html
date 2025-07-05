@@ -455,7 +455,7 @@
           stockRefreshTimeout = setTimeout(() => {
             console.log('🔄 Auto-refreshing stock after 30 seconds...');
             fetchStockWithComparison();
-          }, 10000);
+          }, 30000);
         } else {
           console.log('✅ Stock changed! New items detected');
           updateStockStatus(true, 'Stock updated - New items available!');
