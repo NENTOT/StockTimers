@@ -307,12 +307,41 @@
       }
     }
 
-    // Function to compare stock data
+    // Function to compare stock data - only compare actual stock items
     function compareStockData(newData, oldData) {
       if (!oldData) return false;
       
       try {
-        return JSON.stringify(newData) === JSON.stringify(oldData);
+        const categories = ['seedsStock', 'gearStock', 'eggStock', 'cosmeticsStock'];
+        
+        for (const category of categories) {
+          const newItems = newData[category] || [];
+          const oldItems = oldData[category] || [];
+          
+          // Compare array lengths first
+          if (newItems.length !== oldItems.length) {
+            console.log(`📊 ${category} length changed: ${oldItems.length} → ${newItems.length}`);
+            return false;
+          }
+          
+          // Sort items by name for consistent comparison
+          const newSorted = [...newItems].sort((a, b) => a.name.localeCompare(b.name));
+          const oldSorted = [...oldItems].sort((a, b) => a.name.localeCompare(b.name));
+          
+          // Compare each item
+          for (let i = 0; i < newSorted.length; i++) {
+            const newItem = newSorted[i];
+            const oldItem = oldSorted[i];
+            
+            if (newItem.name !== oldItem.name || newItem.value !== oldItem.value) {
+              console.log(`📊 ${category} item changed: ${oldItem.name}(${oldItem.value}) → ${newItem.name}(${newItem.value})`);
+              return false;
+            }
+          }
+        }
+        
+        console.log('📊 Stock comparison: No changes detected in actual stock items');
+        return true;
       } catch (error) {
         console.error('Error comparing stock data:', error);
         return false;
@@ -428,7 +457,7 @@
             fetchStockWithComparison();
           }, 10000);
         } else {
-          console.log('✅ Stock has changed!');
+          console.log('✅ Stock changed! New items detected');
           updateStockStatus(true, 'Stock updated - New items available!');
           
           if (stockRefreshTimeout) {
@@ -437,6 +466,7 @@
           }
         }
         
+        // Store a deep copy for comparison
         previousStockData = JSON.parse(JSON.stringify(newStockData));
       }
     }
