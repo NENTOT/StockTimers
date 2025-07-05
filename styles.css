@@ -86,6 +86,11 @@
         .controls {
             text-align: center;
             margin-bottom: 30px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            justify-content: center;
+            align-items: center;
         }
         
         .btn {
@@ -95,8 +100,20 @@
             padding: 10px 20px;
             border-radius: 4px;
             cursor: pointer;
-            margin: 0 10px;
             font-size: 16px;
+            min-width: 120px;
+        }
+        
+        @media (max-width: 480px) {
+            .controls {
+                flex-direction: column;
+                gap: 10px;
+            }
+            
+            .btn {
+                width: 100%;
+                max-width: 200px;
+            }
         }
         
         .btn:hover {
