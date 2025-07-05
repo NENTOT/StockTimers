@@ -20,14 +20,14 @@
                 // Test connection
                 await db.collection('stock_history').limit(1).get();
                 
-                document.getElementById('firebase-status').textContent = '🔥 Firebase: Connected';
+                document.getElementById('firebase-status').textContent = 'Database: Connected';
                 document.getElementById('firebase-status').className = 'status firebase-connected';
-                console.log('✅ Firebase initialized successfully');
+                console.log('✅ Database initialized successfully');
                 
                 return true;
             } catch (error) {
                 console.error('❌ Firebase initialization failed:', error);
-                document.getElementById('firebase-status').textContent = '🔥 Firebase: Connection failed';
+                document.getElementById('firebase-status').textContent = 'Database: Connection failed';
                 document.getElementById('firebase-status').className = 'status disconnected';
                 return false;
             }
@@ -90,9 +90,9 @@
                 };
 
                 await db.collection('stock_history').add(docData);
-                console.log('✅ Stock data saved to Firebase');
+                console.log('✅ Stock data saved to Database');
             } catch (error) {
-                console.error('❌ Error saving to Firebase:', error);
+                console.error('❌ Error saving to Database:', error);
             }
         }
 
@@ -108,9 +108,9 @@
                 };
 
                 await db.collection('stock_changes').add(docData);
-                console.log('✅ Stock changes saved to Firebase:', changes.length, 'changes');
+                console.log('✅ Stock changes saved to Database:', changes.length, 'changes');
             } catch (error) {
-                console.error('❌ Error saving changes to Firebase:', error);
+                console.error('❌ Error saving changes to Database:', error);
             }
         }
 
@@ -136,7 +136,7 @@
 
                 return history;
             } catch (error) {
-                console.error('❌ Error fetching history from Firebase:', error);
+                console.error('❌ Error fetching history from Database:', error);
                 return [];
             }
         }
@@ -537,9 +537,9 @@
             const firebaseConnected = await initializeFirebase();
             
             if (firebaseConnected) {
-                console.log('🔥 Firebase connected, starting updates...');
+                console.log('Database connected, starting updates...');
             } else {
-                console.log('⚠️ Firebase not connected, continuing without database features...');
+                console.log('⚠️ Database not connected, continuing without database features...');
             }
             
             // Start the main application
