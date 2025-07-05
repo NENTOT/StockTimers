@@ -445,17 +445,17 @@
         const stockUnchanged = compareStockData(newStockData, previousStockData);
         
         if (stockUnchanged) {
-          console.log('🔄 Stock unchanged, scheduling refresh in 10 seconds...');
-          updateStockStatus(true, 'Stock unchanged - Auto-refresh in 10 seconds');
+          console.log('🔄 Stock unchanged, scheduling refresh in 30 seconds...');
+          updateStockStatus(true, 'Stock unchanged - Auto-refresh in 30 seconds');
           
           if (stockRefreshTimeout) {
             clearTimeout(stockRefreshTimeout);
           }
           
           stockRefreshTimeout = setTimeout(() => {
-            console.log('🔄 Auto-refreshing stock after 10 seconds...');
+            console.log('🔄 Auto-refreshing stock after 30 seconds...');
             fetchStockWithComparison();
-          }, 10000);
+          }, 30000);
         } else {
           console.log('✅ Stock changed! New items detected');
           updateStockStatus(true, 'Stock updated - New items available!');
