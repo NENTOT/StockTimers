@@ -333,7 +333,7 @@
   grid-column: 1 / -1;
   max-height: 400px;
   overflow-y: auto;
-    }
+}
 
     .history-entry {
       background: #f8f9fa;
@@ -800,16 +800,16 @@
 }
 
     function saveHistoryToStorage() {
-      try {
-        const historyData = {
-          history: stockHistory,
-          lastReset: new Date().toDateString()
-        };
-        localStorage.setItem('stockHistory', JSON.stringify(historyData));
-      } catch (error) {
-        console.error('Error saving history:', error);
-      }
-    }
+  try {
+    const historyData = {
+      history: stockHistory,
+      lastReset: new Date().toDateString()
+    };
+    localStorage.setItem('stockHistory', JSON.stringify(historyData));
+  } catch (error) {
+    console.error('Error saving history:', error);
+  }
+}
 
     function loadHistoryFromStorage() {
       try {
@@ -855,6 +855,10 @@
     function compareStockForHistory(newData, oldData) {
       if (!oldData) return [];
       
+      // Debug: Log the actual API response structure
+      console.log('🔍 API Response Keys:', Object.keys(newData));
+      console.log('🔍 Full API Response:', newData);
+      
       const changes = [];
       const categories = [
         { key: 'seedsStock', name: 'Seeds', emoji: '🌱' },
@@ -866,6 +870,14 @@
       categories.forEach(category => {
         const newItems = newData[category.key] || [];
         const oldItems = oldData[category.key] || [];
+        
+        // Debug: Log what we're finding for each category
+        console.log(`🔍 ${category.name} (${category.key}):`, {
+          newCount: newItems.length,
+          oldCount: oldItems.length,
+          newItems: newItems.length > 0 ? newItems : 'empty',
+          oldItems: oldItems.length > 0 ? oldItems : 'empty'
+        });
         
         // Create maps for easier comparison
         const newMap = new Map(newItems.map(item => [item.name, item.value]));
