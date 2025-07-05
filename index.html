@@ -428,8 +428,8 @@
             fetchStockWithComparison();
           }, 10000);
         } else {
-          console.log('✅ Stock changed, no need for auto-refresh');
-          updateStockStatus(true, 'Stock updated successfully');
+          console.log('✅ Stock has changed!');
+          updateStockStatus(true, 'Stock updated - New items available!');
           
           if (stockRefreshTimeout) {
             clearTimeout(stockRefreshTimeout);
