@@ -326,61 +326,61 @@
       }
     }
     .history-section {
-  background: white;
-  border-radius: 10px;
-  padding: 20px;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-  grid-column: 1 / -1;
-  max-height: 400px;
-  overflow-y: auto;
-}
-
-    .history-entry {
-      background: #f8f9fa;
-      border-radius: 8px;
-      padding: 12px;
-      margin-bottom: 10px;
-      border-left: 4px solid #6c757d;
-    }
-
-    .history-timestamp {
-      font-size: 12px;
-      color: #666;
-      margin-bottom: 8px;
-      font-weight: bold;
-    }
-
-    .history-changes {
-      font-size: 13px;
-      color: #495057;
-    }
-
-    .history-changes .added {
-      color: #28a745;
-      font-weight: bold;
-    }
-
-    .history-changes .removed {
-      color: #dc3545;
-      font-weight: bold;
-    }
-
-    .history-changes .changed {
-      color: #007bff;
-      font-weight: bold;
-    }
-
-
-
-    @media (max-width: 768px) {
-      .history-section {
-        padding: 15px;
-        max-height: 300px;
+        background: white;
+        border-radius: 10px;
+        padding: 20px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        grid-column: 1 / -1;
+        max-height: 400px;
+        overflow-y: auto;
       }
-      
+
       .history-entry {
-        padding: 10px;
+        background: #f8f9fa;
+        border-radius: 8px;
+        padding: 12px;
+        margin-bottom: 10px;
+        border-left: 4px solid #6c757d;
       }
+
+      .history-timestamp {
+        font-size: 12px;
+        color: #666;
+        margin-bottom: 8px;
+        font-weight: bold;
+      }
+
+      .history-changes {
+        font-size: 13px;
+        color: #495057;
+      }
+
+      .history-changes .added {
+        color: #28a745;
+        font-weight: bold;
+      }
+
+      .history-changes .removed {
+        color: #dc3545;
+        font-weight: bold;
+      }
+
+      .history-changes .changed {
+        color: #007bff;
+        font-weight: bold;
+      }
+
+
+
+@media (max-width: 768px) {
+  .history-section {
+    padding: 15px;
+    max-height: 300px;
+  }
+  
+  .history-entry {
+    padding: 10px;
+  }
     }
   </style>
 </head>
@@ -800,231 +800,219 @@
 }
 
     function saveHistoryToStorage() {
-  try {
-    const historyData = {
-      history: stockHistory,
-      lastReset: new Date().toDateString()
-    };
-    localStorage.setItem('stockHistory', JSON.stringify(historyData));
-  } catch (error) {
-    console.error('Error saving history:', error);
-  }
-}
-
-    function loadHistoryFromStorage() {
-      try {
-        const stored = localStorage.getItem('stockHistory');
-        if (stored) {
-          const historyData = JSON.parse(stored);
-          const today = new Date().toDateString();
-          
-          // Check if we need to reset (new day)
-          if (historyData.lastReset !== today) {
-            console.log('📅 New day detected, resetting stock history');
-            stockHistory = [];
-            saveHistoryToStorage();
-          } else {
-            stockHistory = historyData.history || [];
-          }
-        }
-      } catch (error) {
-        console.error('Error loading history:', error);
-        stockHistory = [];
-      }
-    }
-
-    function addToHistory(changes) {
-      if (changes.length === 0) return;
-      
-      const historyEntry = {
-        timestamp: new Date(),
-        changes: changes
+    try {
+      const historyData = {
+        history: stockHistory,
+        lastReset: new Date().toDateString()
       };
-      
-      stockHistory.unshift(historyEntry);
-      
-      // Keep only the last MAX_HISTORY_ENTRIES
-      if (stockHistory.length > MAX_HISTORY_ENTRIES) {
-        stockHistory = stockHistory.slice(0, MAX_HISTORY_ENTRIES);
-      }
-      
-      saveHistoryToStorage();
-      displayHistory();
+      localStorage.setItem('stockHistory', JSON.stringify(historyData));
+    } catch (error) {
+      console.error('Error saving history:', error);
     }
+  }
 
-    function compareStockForHistory(newData, oldData) {
-      if (!oldData) return [];
-      
-      // Debug: Log the actual API response structure
-      console.log('🔍 API Response Keys:', Object.keys(newData));
-      console.log('🔍 Full API Response:', newData);
-      
-      const changes = [];
-      const categories = [
-        { key: 'seedsStock', name: 'Seeds', emoji: '🌱' },
-        { key: 'gearStock', name: 'Gears', emoji: '⚙️' },
-        { key: 'eggStock', name: 'Eggs', emoji: '🥚' },
-        { key: 'cosmeticsStock', name: 'Cosmetics', emoji: '💄' }
-      ];
-      
-      categories.forEach(category => {
-        const newItems = newData[category.key] || [];
-        const oldItems = oldData[category.key] || [];
+  function loadHistoryFromStorage() {
+    try {
+      const stored = localStorage.getItem('stockHistory');
+      if (stored) {
+        const historyData = JSON.parse(stored);
+        const today = new Date().toDateString();
         
-        // Debug: Log what we're finding for each category
-        console.log(`🔍 ${category.name} (${category.key}):`, {
-          newCount: newItems.length,
-          oldCount: oldItems.length,
-          newItems: newItems.length > 0 ? newItems : 'empty',
-          oldItems: oldItems.length > 0 ? oldItems : 'empty'
-        });
-        
-        // Create maps for easier comparison
-        const newMap = new Map(newItems.map(item => [item.name, item.value]));
-        const oldMap = new Map(oldItems.map(item => [item.name, item.value]));
-        
-        // Check for new items
-        newItems.forEach(item => {
-          if (!oldMap.has(item.name)) {
-            changes.push({
-              type: 'added',
-              category: category.name,
-              emoji: category.emoji,
-              item: item.name,
-              value: item.value
-            });
-          } else if (oldMap.get(item.name) !== item.value) {
-            changes.push({
-              type: 'changed',
-              category: category.name,
-              emoji: category.emoji,
-              item: item.name,
-              oldValue: oldMap.get(item.name),
-              newValue: item.value
-            });
-          }
-        });
-        
-        // Check for removed items
-        oldItems.forEach(item => {
-          if (!newMap.has(item.name)) {
-            changes.push({
-              type: 'removed',
-              category: category.name,
-              emoji: category.emoji,
-              item: item.name,
-              value: item.value
-            });
-          }
-        });
-      });
-      
-      return changes;
-    }
-
-    function displayHistory() {
-      const historyContainer = document.getElementById('history-container');
-      
-      if (stockHistory.length === 0) {
-        historyContainer.innerHTML = '<div class="loading">No stock changes recorded yet...</div>';
-        return;
-      }
-      
-      let html = '';
-      
-      stockHistory.forEach(entry => {
-        const timestamp = new Date(entry.timestamp).toLocaleString();
-        
-        html += `
-          <div class="history-entry">
-            <div class="history-timestamp">${timestamp}</div>
-            <div class="history-changes">
-        `;
-        
-        entry.changes.forEach(change => {
-          let changeText = '';
-          
-          switch (change.type) {
-            case 'added':
-              changeText = `<span class="added">+ ${change.emoji} ${change.item} (${change.value})</span>`;
-              break;
-            case 'removed':
-              changeText = `<span class="removed">- ${change.emoji} ${change.item} (${change.value})</span>`;
-              break;
-            case 'changed':
-              changeText = `<span class="changed">~ ${change.emoji} ${change.item} (${change.oldValue} → ${change.newValue})</span>`;
-              break;
-          }
-          
-          html += `<div>${changeText}</div>`;
-        });
-        
-        html += `
-            </div>
-          </div>
-        `;
-      });
-      
-      historyContainer.innerHTML = html;
-    }
-
-
-
-    // Modify your existing fetchStockWithComparison function to include history tracking
-    // Replace your existing fetchStockWithComparison function with this:
-    async function fetchStockWithComparison() {
-      console.log('📦 Fetching stock with comparison...');
-      
-      const newStockData = await fetchStock();
-      
-      if (newStockData) {
-        const stockUnchanged = compareStockData(newStockData, previousStockData);
-        
-        // Track changes for history
-        const changes = compareStockForHistory(newStockData, previousStockData);
-        if (changes.length > 0) {
-          addToHistory(changes);
-        }
-        
-        if (stockUnchanged) {
-          console.log('🔄 Stock unchanged, scheduling refresh in 30 seconds...');
-          updateStockStatus(true, 'Stock unchanged - Auto-refresh in 30 seconds');
-          
-          if (stockRefreshTimeout) {
-            clearTimeout(stockRefreshTimeout);
-          }
-          
-          stockRefreshTimeout = setTimeout(() => {
-            console.log('🔄 Auto-refreshing stock after 30 seconds...');
-            fetchStockWithComparison();
-          }, 30000);
+        // Check if we need to reset (new day)
+        if (historyData.lastReset !== today) {
+          console.log('📅 New day detected, resetting stock history');
+          stockHistory = [];
+          saveHistoryToStorage();
         } else {
-          console.log('✅ Stock changed! New items detected');
-          updateStockStatus(true, 'Stock updated - New items available!');
-          
-          if (stockRefreshTimeout) {
-            clearTimeout(stockRefreshTimeout);
-            stockRefreshTimeout = null;
-          }
+          stockHistory = historyData.history || [];
+        }
+      }
+    } catch (error) {
+      console.error('Error loading history:', error);
+      stockHistory = [];
+    }
+  }
+
+  function addToHistory(changes) {
+    if (changes.length === 0) return;
+    
+    const historyEntry = {
+      timestamp: new Date(),
+      changes: changes
+    };
+    
+    stockHistory.unshift(historyEntry);
+    
+    // Keep only the last MAX_HISTORY_ENTRIES
+    if (stockHistory.length > MAX_HISTORY_ENTRIES) {
+      stockHistory = stockHistory.slice(0, MAX_HISTORY_ENTRIES);
+    }
+    
+    saveHistoryToStorage();
+    displayHistory();
+  }
+
+  function compareStockForHistory(newData, oldData) {
+    if (!oldData) return [];
+    
+    const changes = [];
+    const categories = [
+      { key: 'seedsStock', name: 'Seeds', emoji: '🌱' },
+      { key: 'gearStock', name: 'Gears', emoji: '⚙️' },
+      { key: 'eggStock', name: 'Eggs', emoji: '🥚' },
+      { key: 'cosmeticsStock', name: 'Cosmetics', emoji: '💄' }
+    ];
+    
+    categories.forEach(category => {
+      const newItems = newData[category.key] || [];
+      const oldItems = oldData[category.key] || [];
+      
+      // Create maps for easier comparison
+      const newMap = new Map(newItems.map(item => [item.name, item.value]));
+      const oldMap = new Map(oldItems.map(item => [item.name, item.value]));
+      
+      // Check for new items
+      newItems.forEach(item => {
+        if (!oldMap.has(item.name)) {
+          changes.push({
+            type: 'added',
+            category: category.name,
+            emoji: category.emoji,
+            item: item.name,
+            value: item.value
+          });
+        } else if (oldMap.get(item.name) !== item.value) {
+          changes.push({
+            type: 'changed',
+            category: category.name,
+            emoji: category.emoji,
+            item: item.name,
+            oldValue: oldMap.get(item.name),
+            newValue: item.value
+          });
+        }
+      });
+      
+      // Check for removed items
+      oldItems.forEach(item => {
+        if (!newMap.has(item.name)) {
+          changes.push({
+            type: 'removed',
+            category: category.name,
+            emoji: category.emoji,
+            item: item.name,
+            value: item.value
+          });
+        }
+      });
+    });
+    
+    return changes;
+  }
+
+  function displayHistory() {
+    const historyContainer = document.getElementById('history-container');
+    
+    if (stockHistory.length === 0) {
+      historyContainer.innerHTML = '<div class="loading">No stock changes recorded yet...</div>';
+      return;
+    }
+    
+    let html = '';
+    
+    stockHistory.forEach(entry => {
+      const timestamp = new Date(entry.timestamp).toLocaleString();
+      
+      html += `
+        <div class="history-entry">
+          <div class="history-timestamp">${timestamp}</div>
+          <div class="history-changes">
+      `;
+      
+      entry.changes.forEach(change => {
+        let changeText = '';
+        
+        switch (change.type) {
+          case 'added':
+            changeText = `<span class="added">+ ${change.emoji} ${change.item} (${change.value})</span>`;
+            break;
+          case 'removed':
+            changeText = `<span class="removed">- ${change.emoji} ${change.item} (${change.value})</span>`;
+            break;
+          case 'changed':
+            changeText = `<span class="changed">~ ${change.emoji} ${change.item} (${change.oldValue} → ${change.newValue})</span>`;
+            break;
         }
         
-        // Store a deep copy for comparison
-        previousStockData = JSON.parse(JSON.stringify(newStockData));
-      }
-    }
-
-    // Add this to your existing initialize function
-    function initialize() {
-      loadHistoryFromStorage(); // Add this line
-      displayHistory(); // Add this line
-      startUpdates();
+        html += `<div>${changeText}</div>`;
+      });
       
-      // Set up manual refresh button
-      const refreshBtn = document.getElementById('refreshAllBtn');
-      if (refreshBtn) {
-        refreshBtn.addEventListener('click', refreshAll);
+      html += `
+          </div>
+        </div>
+      `;
+    });
+    
+    historyContainer.innerHTML = html;
+  }
+
+
+
+  // Modify your existing fetchStockWithComparison function to include history tracking
+  // Replace your existing fetchStockWithComparison function with this:
+  async function fetchStockWithComparison() {
+    console.log('📦 Fetching stock with comparison...');
+    
+    const newStockData = await fetchStock();
+    
+    if (newStockData) {
+      const stockUnchanged = compareStockData(newStockData, previousStockData);
+      
+      // Track changes for history
+      const changes = compareStockForHistory(newStockData, previousStockData);
+      if (changes.length > 0) {
+        addToHistory(changes);
       }
+      
+      if (stockUnchanged) {
+        console.log('🔄 Stock unchanged, scheduling refresh in 30 seconds...');
+        updateStockStatus(true, 'Stock unchanged - Auto-refresh in 30 seconds');
+        
+        if (stockRefreshTimeout) {
+          clearTimeout(stockRefreshTimeout);
+        }
+        
+        stockRefreshTimeout = setTimeout(() => {
+          console.log('🔄 Auto-refreshing stock after 30 seconds...');
+          fetchStockWithComparison();
+        }, 30000);
+      } else {
+        console.log('✅ Stock changed! New items detected');
+        updateStockStatus(true, 'Stock updated - New items available!');
+        
+        if (stockRefreshTimeout) {
+          clearTimeout(stockRefreshTimeout);
+          stockRefreshTimeout = null;
+        }
+      }
+      
+      // Store a deep copy for comparison
+      previousStockData = JSON.parse(JSON.stringify(newStockData));
     }
+  }
+
+  // Add this to your existing initialize function
+  function initialize() {
+    loadHistoryFromStorage(); // Add this line
+    displayHistory(); // Add this line
+    startUpdates();
+    
+    // Set up manual refresh button
+    const refreshBtn = document.getElementById('refreshAllBtn');
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', refreshAll);
+    }
+  }
   </script>
 </body>
 </html>
