@@ -2,9 +2,390 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Stock Timers & Inventory</title>
-  <link rel="stylesheet" href="styles.css">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+
+    h1 {
+      text-align: center;
+      color: #333;
+      margin-bottom: 30px;
+    }
+
+    .main-container {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 30px;
+    }
+
+    .timer-section {
+      background: white;
+      border-radius: 10px;
+      padding: 20px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+
+    .stock-section {
+      background: white;
+      border-radius: 10px;
+      padding: 20px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      max-height: 600px;
+      overflow-y: auto;
+    }
+
+    .section-title {
+      font-size: 24px;
+      font-weight: bold;
+      color: #333;
+      margin-bottom: 20px;
+      text-align: center;
+      border-bottom: 2px solid #007bff;
+      padding-bottom: 10px;
+    }
+
+    .timer {
+      background: #f8f9fa;
+      border-radius: 8px;
+      padding: 15px;
+      margin: 15px 0;
+      border-left: 4px solid #007bff;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .timer.expired {
+      border-left-color: #dc3545;
+      background: #ffe6e6;
+    }
+
+    .timer-label {
+      font-weight: bold;
+      color: #555;
+      font-size: 16px;
+    }
+
+    .timer-time {
+      font-size: 20px;
+      font-weight: bold;
+      color: #007bff;
+      font-family: monospace;
+    }
+
+    .timer-time.expired {
+      color: #dc3545;
+    }
+
+    .status {
+      text-align: center;
+      padding: 10px;
+      margin-bottom: 20px;
+      border-radius: 5px;
+      font-size: 14px;
+    }
+
+    .status.connected {
+      background-color: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+
+    .status.disconnected {
+      background-color: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+
+    .status.firebase-connected {
+      background-color: #d1ecf1;
+      color: #0c5460;
+      border: 1px solid #b8daff;
+    }
+
+    .stock-category {
+      margin-bottom: 20px;
+      background: #f8f9fa;
+      border-radius: 8px;
+      padding: 15px;
+      border-left: 4px solid #28a745;
+    }
+
+    .stock-category h3 {
+      margin: 0 0 10px 0;
+      color: #333;
+      font-size: 18px;
+    }
+
+    .stock-items {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 8px;
+    }
+
+    .stock-item {
+      background: white;
+      padding: 8px 12px;
+      border-radius: 4px;
+      border: 1px solid #ddd;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 14px;
+    }
+
+    .stock-item-name {
+      font-weight: 500;
+      color: #333;
+    }
+
+    .stock-item-quantity {
+      font-weight: bold;
+      color: #007bff;
+      background: #e7f3ff;
+      padding: 2px 6px;
+      border-radius: 3px;
+    }
+
+    .timestamp {
+      text-align: center;
+      color: #666;
+      font-size: 12px;
+      margin-bottom: 15px;
+    }
+
+    .refresh-button {
+      background-color: #28a745;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 14px;
+      margin: 10px auto;
+      display: block;
+    }
+
+    .refresh-button:hover {
+      background-color: #218838;
+    }
+
+    .history-button {
+      background-color: #007bff;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 14px;
+      margin: 10px auto;
+      display: block;
+    }
+
+    .history-button:hover {
+      background-color: #0056b3;
+    }
+
+    .loading {
+      text-align: center;
+      color: #666;
+      font-style: italic;
+    }
+
+    .error {
+      background-color: #f8d7da;
+      color: #721c24;
+      padding: 10px;
+      border-radius: 5px;
+      margin: 10px 0;
+    }
+
+    .history-section {
+      background: white;
+      border-radius: 10px;
+      padding: 20px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      margin-top: 20px;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+
+    .history-item {
+      background: #f8f9fa;
+      border-radius: 6px;
+      padding: 12px;
+      margin-bottom: 10px;
+      border-left: 3px solid #007bff;
+    }
+
+    .history-timestamp {
+      font-size: 12px;
+      color: #666;
+      margin-bottom: 5px;
+    }
+
+    .history-changes {
+      font-size: 14px;
+      color: #333;
+    }
+
+    .change-item {
+      margin: 3px 0;
+      padding: 2px 6px;
+      background: #e7f3ff;
+      border-radius: 3px;
+      display: inline-block;
+      margin-right: 5px;
+    }
+
+    @media (max-width: 768px) {
+      body {
+        padding: 10px;
+      }
+
+      h1 {
+        font-size: 24px;
+        margin-bottom: 20px;
+      }
+
+      .main-container {
+        grid-template-columns: 1fr;
+        gap: 20px;
+      }
+
+      .timer-section, .stock-section {
+        padding: 15px;
+        border-radius: 8px;
+      }
+
+      .section-title {
+        font-size: 20px;
+        margin-bottom: 15px;
+      }
+
+      .timer {
+        padding: 12px;
+        margin: 10px 0;
+        flex-direction: column;
+        text-align: center;
+        gap: 8px;
+      }
+
+      .timer-label {
+        font-size: 14px;
+        margin-bottom: 5px;
+      }
+
+      .timer-time {
+        font-size: 18px;
+      }
+
+      .stock-section {
+        max-height: none;
+        overflow-y: visible;
+      }
+
+      .stock-items {
+        grid-template-columns: 1fr;
+        gap: 6px;
+      }
+
+      .stock-item {
+        padding: 10px;
+        font-size: 13px;
+      }
+
+      .stock-category {
+        padding: 12px;
+        margin-bottom: 15px;
+      }
+
+      .stock-category h3 {
+        font-size: 16px;
+        margin-bottom: 8px;
+      }
+
+      .refresh-button, .history-button {
+        padding: 12px 24px;
+        font-size: 16px;
+        margin: 15px auto;
+        touch-action: manipulation;
+      }
+
+      .status {
+        padding: 8px;
+        font-size: 12px;
+        margin-bottom: 15px;
+      }
+
+      .timestamp {
+        font-size: 11px;
+        margin-bottom: 10px;
+      }
+    }
+
+    @media (max-width: 480px) {
+      body {
+        padding: 8px;
+      }
+
+      h1 {
+        font-size: 20px;
+        margin-bottom: 15px;
+      }
+
+      .main-container {
+        gap: 15px;
+      }
+
+      .timer-section, .stock-section {
+        padding: 12px;
+      }
+
+      .section-title {
+        font-size: 18px;
+        margin-bottom: 12px;
+      }
+
+      .timer {
+        padding: 10px;
+        margin: 8px 0;
+      }
+
+      .timer-label {
+        font-size: 13px;
+      }
+
+      .timer-time {
+        font-size: 16px;
+      }
+
+      .stock-item {
+        padding: 8px;
+        font-size: 12px;
+      }
+
+      .stock-category {
+        padding: 10px;
+        margin-bottom: 12px;
+      }
+
+      .stock-category h3 {
+        font-size: 14px;
+      }
+
+      .refresh-button, .history-button {
+        padding: 10px 20px;
+        font-size: 14px;
+      }
+    }
+  </style>
 </head>
 <body>
   <h1>🌱 Stock Timers & Inventory Dashboard</h1>
@@ -75,16 +456,627 @@
     </div>
   </div>
 
-  <!-- Firebase SDK -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.7.1/firebase-app.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.7.1/firebase-firestore.min.js"></script>
-  
-  <!-- Application Scripts -->
-  <script src="config.js"></script>
-  <script src="firebase-service.js"></script>
-  <script src="stock-service.js"></script>
-  <script src="timer-service.js"></script>
-  <script src="ui-service.js"></script>
-  <script src="app.js"></script>
+  <!-- Firebase SDK v8 (compatible with older syntax) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/8.10.1/firebase-app.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/8.10.1/firebase-firestore.js"></script>
+
+  <script>
+    // Firebase Configuration
+    const firebaseConfig = {
+      apiKey: "AIzaSyAALOGLNNT9SOG4ypxrLH6ZbPd-bubakYA",
+      authDomain: "gagstockdb.firebaseapp.com",
+      projectId: "gagstockdb",
+      storageBucket: "gagstockdb.firebasestorage.app",
+      messagingSenderId: "66513958029",
+      appId: "1:66513958029:web:eb8bc26fd8694644719ec4"
+    };
+
+    // Initialize Firebase
+    let db = null;
+    let firebaseApp = null;
+
+    async function initializeFirebase() {
+      try {
+        // Check if Firebase is available
+        if (typeof firebase === 'undefined') {
+          throw new Error('Firebase SDK not loaded');
+        }
+
+        firebaseApp = firebase.initializeApp(firebaseConfig);
+        db = firebase.firestore();
+        
+        // Test connection
+        await db.collection('stock_history').limit(1).get();
+        
+        document.getElementById('firebase-status').textContent = '🔥 Firebase: Connected';
+        document.getElementById('firebase-status').className = 'status firebase-connected';
+        console.log('✅ Firebase initialized successfully');
+        
+        return true;
+      } catch (error) {
+        console.error('❌ Firebase initialization failed:', error);
+        document.getElementById('firebase-status').textContent = '🔥 Firebase: Connection failed';
+        document.getElementById('firebase-status').className = 'status disconnected';
+        return false;
+      }
+    }
+
+    // API Configuration
+    const API_BASE_URL = 'https://grow-a-garden-api-4ses.onrender.com/api';
+    const UPDATE_INTERVAL = 1000; // 1 second for timers
+
+    // State management
+    let timerUpdateInterval;
+    let previousStockData = null;
+    let stockRefreshTimeout = null;
+    let restockTimes = {};
+    let historyVisible = false;
+
+    // Timer elements
+    const timerElements = {
+      seedTimer: document.getElementById('seedTimer'),
+      gearTimer: document.getElementById('gearTimer'),
+      eggTimer: document.getElementById('eggTimer'),
+      cosmeticTimer: document.getElementById('cosmeticTimer')
+    };
+
+    const timerContainers = {
+      seedTimer: document.getElementById('seed-timer'),
+      gearTimer: document.getElementById('gear-timer'),
+      eggTimer: document.getElementById('egg-timer'),
+      cosmeticTimer: document.getElementById('cosmetic-timer')
+    };
+
+    const stockStatusElement = document.getElementById('stock-status');
+    const stockContainer = document.getElementById('stock-container');
+    const stockTimestamp = document.getElementById('stock-timestamp');
+    const historyContainer = document.getElementById('history-container');
+    const historySection = document.getElementById('history-section');
+
+    // Timer mapping for calculated timers
+    const timerMapping = {
+      'seedTimer': 'seed',
+      'gearTimer': 'gear',
+      'eggTimer': 'egg',
+      'cosmeticTimer': 'cosmetic'
+    };
+
+    // Firebase Database Functions
+    async function saveStockToFirebase(stockData) {
+      if (!db) return;
+      
+      try {
+        const docData = {
+          timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+          stockData: stockData,
+          categories: {
+            seeds: stockData.seedsStock || [],
+            gear: stockData.gearStock || [],
+            eggs: stockData.eggStock || [],
+            cosmetics: stockData.cosmeticsStock || []
+          }
+        };
+
+        await db.collection('stock_history').add(docData);
+        console.log('✅ Stock data saved to Firebase');
+      } catch (error) {
+        console.error('❌ Error saving to Firebase:', error);
+      }
+    }
+
+    async function saveStockChangeToFirebase(changes) {
+      if (!db || !changes || changes.length === 0) return;
+      
+      try {
+        const docData = {
+          timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+          changeType: 'stock_change',
+          changes: changes,
+          changeCount: changes.length
+        };
+
+        await db.collection('stock_changes').add(docData);
+        console.log('✅ Stock changes saved to Firebase:', changes.length, 'changes');
+      } catch (error) {
+        console.error('❌ Error saving changes to Firebase:', error);
+      }
+    }
+
+    async function getStockHistoryFromFirebase(limit = 20) {
+      if (!db) return [];
+      
+      try {
+        const snapshot = await db.collection('stock_changes')
+          .orderBy('timestamp', 'desc')
+          .limit(limit)
+          .get();
+
+        const history = [];
+        snapshot.forEach(doc => {
+          const data = doc.data();
+          history.push({
+            id: doc.id,
+            timestamp: data.timestamp?.toDate() || new Date(),
+            changes: data.changes || [],
+            changeCount: data.changeCount || 0
+          });
+        });
+
+        return history;
+      } catch (error) {
+        console.error('❌ Error fetching history from Firebase:', error);
+        return [];
+      }
+    }
+
+    // Utility functions
+    function formatTime(seconds) {
+      const hours = Math.floor(seconds / 3600);
+      const minutes = Math.floor((seconds % 3600) / 60);
+      const secs = seconds % 60;
+
+      if (hours > 0) {
+        return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+      } else {
+        return `${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+      }
+    }
+
+    function updateStockStatus(connected, message = null) {
+      if (connected) {
+        stockStatusElement.textContent = message || 'Connected to stock service';
+        stockStatusElement.className = 'status connected';
+        document.getElementById('refreshAllBtn').disabled = false;
+      } else {
+        stockStatusElement.textContent = message || 'Disconnected from stock service';
+        stockStatusElement.className = 'status disconnected';
+        document.getElementById('refreshAllBtn').disabled = true;
+      }
+    }
+
+    // Enhanced stock comparison with detailed change tracking
+    function compareStockData(newData, oldData) {
+      if (!oldData) return { hasChanges: false, changes: [] };
+      
+      try {
+        const changes = [];
+        const categories = [
+          { key: 'seedsStock', name: 'Seeds', emoji: '🌱' },
+          { key: 'gearStock', name: 'Gear', emoji: '⚙️' },
+          { key: 'eggStock', name: 'Eggs', emoji: '🥚' },
+          { key: 'cosmeticsStock', name: 'Cosmetics', emoji: '💄' }
+        ];
+        
+        for (const category of categories) {
+          const newItems = newData[category.key] || [];
+          const oldItems = oldData[category.key] || [];
+          
+          // Create maps for easier comparison
+          const newMap = new Map(newItems.map(item => [item.name, item.value]));
+          const oldMap = new Map(oldItems.map(item => [item.name, item.value]));
+          
+          // Check for new items
+          for (const [name, value] of newMap) {
+            if (!oldMap.has(name)) {
+              changes.push({
+                type: 'added',
+                category: category.name,
+                emoji: category.emoji,
+                item: name,
+                value: value
+              });
+            } else if (oldMap.get(name) !== value) {
+              changes.push({
+                type: 'changed',
+                category: category.name,
+                emoji: category.emoji,
+                item: name,
+                oldValue: oldMap.get(name),
+                newValue: value
+              });
+            }
+          }
+          
+          // Check for removed items
+          for (const [name, value] of oldMap) {
+            if (!newMap.has(name)) {
+              changes.push({
+                type: 'removed',
+                category: category.name,
+                emoji: category.emoji,
+                item: name,
+                value: value
+              });
+            }
+          }
+        }
+        
+        return {
+          hasChanges: changes.length > 0,
+          changes: changes
+        };
+      } catch (error) {
+        console.error('Error comparing stock data:', error);
+        return { hasChanges: false, changes: [] };
+      }
+    }
+
+    // Calculate timers based on known restock intervals
+    function calculateTimers() {
+      try {
+        const now = Date.now();
+        
+        // Known restock intervals (in minutes)
+        const intervals = {
+          seed: 5,    // Seeds restock every 5 minutes
+          gear: 5,    // Gear restocks every 5 minutes  
+          egg: 30,    // Eggs restock every 30 minutes
+          cosmetic: 180 // Cosmetics restock every 3 hours
+        };
+
+        restockTimes = {};
+        
+        Object.entries(intervals).forEach(([key, intervalMinutes]) => {
+          const intervalMs = intervalMinutes * 60 * 1000;
+          const timeSinceEpoch = now;
+          const timeIntoCurrentInterval = timeSinceEpoch % intervalMs;
+          const nextRestockTime = now + (intervalMs - timeIntoCurrentInterval);
+          const remaining = Math.max(0, Math.floor((nextRestockTime - now) / 1000));
+          
+          restockTimes[key] = {
+            restockTime: nextRestockTime,
+            remaining: remaining
+          };
+        });
+
+        updateTimerDisplay();
+        
+      } catch (error) {
+        console.error('Error calculating timers:', error);
+      }
+    }
+
+    // Update timer display
+    function updateTimerDisplay() {
+      const now = Date.now();
+      
+      Object.entries(timerMapping).forEach(([elementKey, apiKey]) => {
+        const element = timerElements[elementKey];
+        const container = timerContainers[elementKey];
+        
+        if (element && container && restockTimes[apiKey]) {
+          const timerData = restockTimes[apiKey];
+          const remaining = Math.max(0, Math.floor((timerData.restockTime - now) / 1000));
+          const isExpired = remaining <= 0;
+
+          element.textContent = isExpired ? 'Restocked!' : formatTime(remaining);
+          element.className = isExpired ? 'timer-time expired' : 'timer-time';
+          container.className = isExpired ? 'timer expired' : 'timer';
+
+          // Auto-refresh stock when timer expires
+          if (isExpired && element.dataset.expired !== 'true') {
+            element.dataset.expired = 'true';
+            console.log(`⏰ ${apiKey} expired, refreshing stock...`);
+            fetchStockWithComparison();
+          } else if (!isExpired) {
+            element.dataset.expired = '';
+          }
+        }
+      });
+    }
+
+    // Stock functions
+    async function fetchStock() {
+      try {
+        stockContainer.innerHTML = '<div class="loading">Loading stock data...</div>';
+        
+        const response = await fetch(`${API_BASE_URL}/stock/GetStock`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+        const stockData = await response.json();
+        displayStock(stockData);
+        
+        // Save to Firebase
+        await saveStockToFirebase(stockData);
+        
+        stockTimestamp.textContent = `Last updated: ${new Date().toLocaleString()}`;
+        updateStockStatus(true, `Stock data loaded successfully`);
+        
+        return stockData;
+      } catch (error) {
+        console.error('Error fetching stock:', error);
+        stockContainer.innerHTML = `<div class="error">Error loading stock data: ${error.message}</div>`;
+        updateStockStatus(false, `Error: ${error.message}`);
+        return null;
+      }
+    }
+
+    // Enhanced stock fetch with comparison and Firebase logging
+    async function fetchStockWithComparison() {
+      console.log('📦 Fetching stock with comparison...');
+      
+      const newStockData = await fetchStock();
+      
+      if (newStockData) {
+        const comparison = compareStockData(newStockData, previousStockData);
+        
+        if (comparison.hasChanges) {
+          console.log('✅ Stock changed! New items detected:', comparison.changes.length, 'changes');
+          updateStockStatus(true, `Stock updated - ${comparison.changes.length} changes detected!`);
+          
+          // Save changes to Firebase
+          await saveStockChangeToFirebase(comparison.changes);
+          
+          // Clear any pending auto-refresh
+          if (stockRefreshTimeout) {
+            clearTimeout(stockRefreshTimeout);
+            stockRefreshTimeout = null;
+          }
+        } else {
+          console.log('🔄 Stock unchanged, scheduling refresh in 30 seconds...');
+          updateStockStatus(true, 'Stock unchanged - Auto-refresh in 30 seconds');
+          
+          if (stockRefreshTimeout) {
+            clearTimeout(stockRefreshTimeout);
+          }
+          
+          stockRefreshTimeout = setTimeout(() => {
+            console.log('🔄 Auto-refreshing stock after 30 seconds...');
+            fetchStockWithComparison();
+          }, 30000);
+        }
+        
+        // Store a deep copy for comparison
+        previousStockData = JSON.parse(JSON.stringify(newStockData));
+      }
+    }
+
+    function displayStock(stockData) {
+      let html = '';
+      
+      const categories = [
+        { key: 'seedsStock', name: 'Seeds', emoji: '🌱' },
+        { key: 'gearStock', name: 'Gears', emoji: '⚙️' },
+        { key: 'eggStock', name: 'Eggs', emoji: '🥚' },
+        { key: 'cosmeticsStock', name: 'Cosmetics', emoji: '💄' }
+      ];
+
+      categories.forEach(category => {
+        const items = stockData[category.key];
+        if (items && items.length > 0) {
+          html += `
+            <div class="stock-category">
+              <h3>${category.emoji} ${category.name} (${items.length} items)</h3>
+              <div class="stock-items">
+          `;
+          
+          items.forEach(item => {
+            html += `
+              <div class="stock-item">
+                <span class="stock-item-name">${item.name}</span>
+                <span class="stock-item-quantity">${item.value}</span>
+              </div>
+            `;
+          });
+          
+          html += `
+              </div>
+            </div>
+          `;
+        }
+      });
+
+      if (html === '') {
+        html = '<div class="loading">No stock data available</div>';
+      }
+
+      stockContainer.innerHTML = html;
+    }
+
+    // History functions
+    async function displayHistory() {
+      try {
+        historyContainer.innerHTML = '<div class="loading">Loading history...</div>';
+        
+        const history = await getStockHistoryFromFirebase(50);
+        
+        if (history.length === 0) {
+          historyContainer.innerHTML = '<div class="loading">No history available</div>';
+          return;
+        }
+
+        let html = '';
+        history.forEach(entry => {
+          const date = entry.timestamp.toLocaleString();
+          const changeCount = entry.changeCount || 0;
+          
+          html += `
+            <div class="history-item">
+              <div class="history-timestamp">${date} (${changeCount} changes)</div>
+              <div class="history-changes">
+          `;
+          
+          entry.changes.forEach(change => {
+            let changeText = '';
+            switch (change.type) {
+              case 'added':
+                changeText = `${change.emoji} Added: ${change.item} (${change.value})`;
+                break;
+              case 'removed':
+                changeText = `${change.emoji} Removed: ${change.item} (${change.value})`;
+                break;
+              case 'changed':
+                changeText = `${change.emoji} Changed: ${change.item} (${change.oldValue} → ${change.newValue})`;
+                break;
+            }
+            
+            html += `<div class="change-item">${changeText}</div>`;
+          });
+          
+          html += `
+              </div>
+            </div>
+          `;
+        });
+
+        historyContainer.innerHTML = html;
+      } catch (error) {
+        console.error('Error displaying history:', error);
+        historyContainer.innerHTML = '<div class="error">Error loading history</div>';
+      }
+    }
+
+    function toggleHistory() {
+      historyVisible = !historyVisible;
+      const historyBtn = document.getElementById('historyBtn');
+      
+      if (historyVisible) {
+        historySection.style.display = 'block';
+        historyBtn.textContent = '📊 Hide History';
+        displayHistory();
+      } else {
+        historySection.style.display = 'none';
+        historyBtn.textContent = '📊 Show History';
+      }
+    }
+
+    function refreshAll() {
+      // Clear any pending auto-refresh
+      if (stockRefreshTimeout) {
+        clearTimeout(stockRefreshTimeout);
+        stockRefreshTimeout = null;
+      }
+      
+      // Calculate timers and fetch stock
+      calculateTimers();
+      fetchStock();
+      
+      // Refresh history if visible
+      if (historyVisible) {
+        displayHistory();
+      }
+    }
+
+    // Update intervals
+    function startUpdates() {
+      calculateTimers();
+      fetchStock();
+      timerUpdateInterval = setInterval(() => {
+        updateTimerDisplay(); // Update display every second
+        // Recalculate timers every 60 seconds to handle any drift
+        if (Date.now() % 60000 < 1000) {
+          calculateTimers();
+        }
+      }, UPDATE_INTERVAL);
+    }
+
+    function stopUpdates() {
+      if (timerUpdateInterval) {
+        clearInterval(timerUpdateInterval);
+        timerUpdateInterval = null;
+      }
+      
+      if (stockRefreshTimeout) {
+        clearTimeout(stockRefreshTimeout);
+        stockRefreshTimeout = null;
+      }
+    }
+
+    // Page lifecycle
+    document.addEventListener('DOMContentLoaded', async function() {
+      console.log('🚀 Stock Timer Dashboard starting...');
+      
+      // Initialize Firebase
+      const firebaseReady = await initializeFirebase();
+      if (!firebaseReady) {
+        console.warn('⚠️ Firebase not available, continuing without database features');
+      }
+      
+      // Start the application
+      startUpdates();
+      
+      // Handle page visibility changes
+      document.addEventListener('visibilitychange', function() {
+        if (document.hidden) {
+          console.log('📱 Page hidden, stopping updates');
+          stopUpdates();
+        } else {
+          console.log('📱 Page visible, resuming updates');
+          startUpdates();
+        }
+      });
+    });
+
+    // Cleanup on page unload
+    window.addEventListener('beforeunload', function() {
+      stopUpdates();
+    });
+
+    // Global error handling
+    window.addEventListener('error', function(event) {
+      console.error('💥 Global error:', event.error);
+      updateStockStatus(false, 'Application error occurred');
+    });
+
+    // Service worker registration (optional)
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function() {
+        // You can register a service worker here if needed
+        console.log('🔧 Service worker support available');
+      });
+    }
+
+    // Keyboard shortcuts
+    document.addEventListener('keydown', function(event) {
+      if (event.ctrlKey || event.metaKey) {
+        switch(event.key) {
+          case 'r':
+            event.preventDefault();
+            refreshAll();
+            break;
+          case 'h':
+            event.preventDefault();
+            toggleHistory();
+            break;
+        }
+      }
+    });
+
+    // Add touch support for mobile
+    let touchStartY = 0;
+    let touchEndY = 0;
+    
+    document.addEventListener('touchstart', function(event) {
+      touchStartY = event.changedTouches[0].screenY;
+    });
+    
+    document.addEventListener('touchend', function(event) {
+      touchEndY = event.changedTouches[0].screenY;
+      handleSwipe();
+    });
+    
+    function handleSwipe() {
+      const swipeThreshold = 50;
+      const diff = touchStartY - touchEndY;
+      
+      if (Math.abs(diff) > swipeThreshold) {
+        if (diff > 0) {
+          // Swipe up - refresh
+          refreshAll();
+        } else {
+          // Swipe down - toggle history
+          toggleHistory();
+        }
+      }
+    }
+
+    // Debug information
+    console.log('🔧 Debug Info:');
+    console.log('- API Base URL:', API_BASE_URL);
+    console.log('- Update Interval:', UPDATE_INTERVAL, 'ms');
+    console.log('- Firebase Config:', firebaseConfig.projectId);
+    console.log('- Timer Mapping:', timerMapping);
+    
+  </script>
 </body>
 </html>
