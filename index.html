@@ -170,11 +170,6 @@
       background-color: #218838;
     }
 
-    .refresh-button:disabled {
-      background-color: #6c757d;
-      cursor: not-allowed;
-    }
-
     .loading {
       text-align: center;
       color: #666;
@@ -250,8 +245,8 @@
   </div>
 
   <script>
-    // API Configuration - Updated to use correct endpoints
-    const API_BASE_URL = 'https://growagardenapi.vercel.app/api';
+    // API Configuration
+    const API_BASE_URL = 'https://grow-a-garden-api-4ses.onrender.com/api';
     const UPDATE_INTERVAL = 1000; // 1 second for timers
 
     // State management
@@ -343,37 +338,31 @@
       }
     }
 
-    // Fetch restock times from API using correct endpoint
+    // Fetch restock times from API
     async function fetchRestockTimes() {
-      try {
-        console.log('Fetching restock times from:', `${API_BASE_URL}/stock/Restock-Time`);
-        const response = await fetch(`${API_BASE_URL}/stock/Restock-Time`);
-        
-        if (response.ok) {
-          const data = await response.json();
-          console.log('Restock API Response:', data);
+      // Try multiple possible endpoints
+      const endpoints = [
+        `${API_BASE_URL}/GetRestockTime`,
+        `${API_BASE_URL}/restock`,
+        `${API_BASE_URL}/timers`
+      ];
+
+      for (const endpoint of endpoints) {
+        try {
+          console.log(`Trying endpoint: ${endpoint}`);
+          const response = await fetch(endpoint);
           
-          // Store the restock times with timestamps
-          restockTimes = {};
-          const now = Date.now();
-          
-          // Handle different possible response formats
-          if (data.restockTimes) {
-            // If the response has a restockTimes property
-            Object.entries(data.restockTimes).forEach(([key, value]) => {
-              if (typeof value === 'number') {
-                const restockTime = value * 1000; // Convert to milliseconds
-                const remaining = Math.max(0, Math.floor((restockTime - now) / 1000));
-                restockTimes[key] = {
-                  restockTime: restockTime,
-                  remaining: remaining
-                };
-              }
-            });
-          } else {
-            // If the response is directly the restock times
+          if (response.ok) {
+            const data = await response.json();
+            console.log('API Response:', data);
+            
+            // Store the restock times with timestamps
+            restockTimes = {};
+            const now = Date.now();
+            
             Object.entries(data).forEach(([key, value]) => {
               if (typeof value === 'number') {
+                // Convert Unix timestamp to milliseconds and calculate remaining time
                 const restockTime = value * 1000; // Convert to milliseconds
                 const remaining = Math.max(0, Math.floor((restockTime - now) / 1000));
                 restockTimes[key] = {
@@ -382,24 +371,25 @@
                 };
               }
             });
-          }
 
-          updateTimerDisplay();
-          if (!isConnected) updateConnectionStatus(true);
-        } else {
-          throw new Error(`HTTP error! status: ${response.status}`);
+            updateTimerDisplay();
+            if (!isConnected) updateConnectionStatus(true);
+            return; // Success, exit the function
+          }
+        } catch (error) {
+          console.log(`Endpoint ${endpoint} failed:`, error.message);
+          continue; // Try next endpoint
         }
-      } catch (error) {
-        console.error('Error fetching restock times:', error);
-        // Fall back to calculated timers
-        useCalculatedTimers();
       }
+      
+      // If all endpoints fail, fall back to calculated timers
+      console.log('All restock time endpoints failed, using calculated timers');
+      useCalculatedTimers();
     }
 
     // Fallback function that calculates timers based on known restock intervals
     function useCalculatedTimers() {
       try {
-        console.log('Using calculated timers fallback');
         const now = Date.now();
         
         // Known restock intervals (in minutes)
@@ -447,7 +437,7 @@
           const remaining = Math.max(0, Math.floor((timerData.restockTime - now) / 1000));
           const isExpired = remaining <= 0;
 
-          element.textContent = isExpired ? 'Restocked!' : formatTime(remaining);
+          element.textContent = isExpired ? 'Reastocked!' : formatTime(remaining);
           element.className = isExpired ? 'timer-time expired' : 'timer-time';
           container.className = isExpired ? 'timer expired' : 'timer';
 
@@ -463,17 +453,15 @@
       });
     }
 
-    // Stock functions using correct endpoint
+    // Stock functions
     async function fetchStock() {
       try {
         stockContainer.innerHTML = '<div class="loading">Loading stock data...</div>';
         
-        console.log('Fetching stock from:', `${API_BASE_URL}/stock/GetStock`);
         const response = await fetch(`${API_BASE_URL}/stock/GetStock`);
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
         const stockData = await response.json();
-        console.log('Stock API Response:', stockData);
         displayStock(stockData);
         
         stockTimestamp.textContent = `Last updated: ${new Date().toLocaleString()}`;
@@ -566,8 +554,6 @@
     }
 
     function refreshAll() {
-      console.log('🔄 Manual refresh triggered');
-      
       // Clear any pending auto-refresh
       if (stockRefreshTimeout) {
         clearTimeout(stockRefreshTimeout);
@@ -581,12 +567,11 @@
 
     // Update intervals
     function startUpdates() {
-      console.log('🚀 Starting updates...');
       fetchRestockTimes();
       fetchStock();
       timerUpdateInterval = setInterval(() => {
         updateTimerDisplay(); // Update display every second
-        // Try to fetch new restock times every 60 seconds
+        // Try to fetch new restock times every 60 seconds (less frequent to avoid API issues)
         if (Date.now() % 60000 < 1000) {
           fetchRestockTimes();
         }
@@ -624,7 +609,6 @@
 
     // Initialize
     function initialize() {
-      console.log('🌱 Initializing dashboard...');
       updateConnectionStatus(false);
       startUpdates();
       
