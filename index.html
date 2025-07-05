@@ -456,19 +456,19 @@
     </div>
   </div>
 
-  <!-- Firebase SDK -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.7.1/firebase-app.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.7.1/firebase-firestore.min.js"></script>
+  <!-- Firebase SDK v8 (compatible with older syntax) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/8.10.1/firebase-app.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/8.10.1/firebase-firestore.js"></script>
 
   <script>
-    // Firebase Configuration - Use environment variables or fallback to defaults
+    // Firebase Configuration
     const firebaseConfig = {
-      apiKey: window.FIREBASE_API_KEY || "AIzaSyAALOGLNNT9SOG4ypxrLH6ZbPd-bubakYA",
-      authDomain: window.FIREBASE_AUTH_DOMAIN || "gagstockdb.firebaseapp.com",
-      projectId: window.FIREBASE_PROJECT_ID || "gagstockdb",
-      storageBucket: window.FIREBASE_STORAGE_BUCKET || "gagstockdb.firebasestorage.app",
-      messagingSenderId: window.FIREBASE_MESSAGING_SENDER_ID || "66513958029",
-      appId: window.FIREBASE_APP_ID || "1:66513958029:web:eb8bc26fd8694644719ec4"
+      apiKey: "AIzaSyAALOGLNNT9SOG4ypxrLH6ZbPd-bubakYA",
+      authDomain: "gagstockdb.firebaseapp.com",
+      projectId: "gagstockdb",
+      storageBucket: "gagstockdb.firebasestorage.app",
+      messagingSenderId: "66513958029",
+      appId: "1:66513958029:web:eb8bc26fd8694644719ec4"
     };
 
     // Initialize Firebase
@@ -477,6 +477,11 @@
 
     async function initializeFirebase() {
       try {
+        // Check if Firebase is available
+        if (typeof firebase === 'undefined') {
+          throw new Error('Firebase SDK not loaded');
+        }
+
         firebaseApp = firebase.initializeApp(firebaseConfig);
         db = firebase.firestore();
         
@@ -970,63 +975,108 @@
         clearInterval(timerUpdateInterval);
         timerUpdateInterval = null;
       }
-    }
-
-    // Page visibility handling
-    document.addEventListener('visibilitychange', function () {
-      if (document.hidden) {
-        stopUpdates();
-        if (stockRefreshTimeout) {
-          clearTimeout(stockRefreshTimeout);
-          stockRefreshTimeout = null;
-        }
-      } else {
-        startUpdates();
-      }
-    });
-
-    // Cleanup on page unload
-    window.addEventListener('beforeunload', function () {
-      stopUpdates();
+      
       if (stockRefreshTimeout) {
         clearTimeout(stockRefreshTimeout);
         stockRefreshTimeout = null;
       }
-    });
+    }
 
-    // Initialize
-    async function initialize() {
-      // Initialize Firebase first
-      const firebaseConnected = await initializeFirebase();
+    // Page lifecycle
+    document.addEventListener('DOMContentLoaded', async function() {
+      console.log('🚀 Stock Timer Dashboard starting...');
       
-      if (firebaseConnected) {
-        console.log('🔥 Firebase connected, starting updates...');
-      } else {
-        console.log('⚠️ Firebase not connected, continuing without database features...');
+      // Initialize Firebase
+      const firebaseReady = await initializeFirebase();
+      if (!firebaseReady) {
+        console.warn('⚠️ Firebase not available, continuing without database features');
       }
       
-      // Start the main application
+      // Start the application
       startUpdates();
       
-      // Set up manual refresh button
-      const refreshBtn = document.getElementById('refreshAllBtn');
-      if (refreshBtn) {
-        refreshBtn.addEventListener('click', refreshAll);
+      // Handle page visibility changes
+      document.addEventListener('visibilitychange', function() {
+        if (document.hidden) {
+          console.log('📱 Page hidden, stopping updates');
+          stopUpdates();
+        } else {
+          console.log('📱 Page visible, resuming updates');
+          startUpdates();
+        }
+      });
+    });
+
+    // Cleanup on page unload
+    window.addEventListener('beforeunload', function() {
+      stopUpdates();
+    });
+
+    // Global error handling
+    window.addEventListener('error', function(event) {
+      console.error('💥 Global error:', event.error);
+      updateStockStatus(false, 'Application error occurred');
+    });
+
+    // Service worker registration (optional)
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function() {
+        // You can register a service worker here if needed
+        console.log('🔧 Service worker support available');
+      });
+    }
+
+    // Keyboard shortcuts
+    document.addEventListener('keydown', function(event) {
+      if (event.ctrlKey || event.metaKey) {
+        switch(event.key) {
+          case 'r':
+            event.preventDefault();
+            refreshAll();
+            break;
+          case 'h':
+            event.preventDefault();
+            toggleHistory();
+            break;
+        }
       }
+    });
+
+    // Add touch support for mobile
+    let touchStartY = 0;
+    let touchEndY = 0;
+    
+    document.addEventListener('touchstart', function(event) {
+      touchStartY = event.changedTouches[0].screenY;
+    });
+    
+    document.addEventListener('touchend', function(event) {
+      touchEndY = event.changedTouches[0].screenY;
+      handleSwipe();
+    });
+    
+    function handleSwipe() {
+      const swipeThreshold = 50;
+      const diff = touchStartY - touchEndY;
       
-      // Set up history button
-      const historyBtn = document.getElementById('historyBtn');
-      if (historyBtn) {
-        historyBtn.addEventListener('click', toggleHistory);
+      if (Math.abs(diff) > swipeThreshold) {
+        if (diff > 0) {
+          // Swipe up - refresh
+          refreshAll();
+        } else {
+          // Swipe down - toggle history
+          toggleHistory();
+        }
       }
     }
 
-    // Start when page is ready
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', initialize);
-    } else {
-      initialize();
-    }
+    // Debug information
+    console.log('🔧 Debug Info:');
+    console.log('- API Base URL:', API_BASE_URL);
+    console.log('- Update Interval:', UPDATE_INTERVAL, 'ms');
+    console.log('- Firebase Config:', firebaseConfig.projectId);
+    console.log('- Timer Mapping:', timerMapping);
+    
   </script>
 </body>
 </html>
