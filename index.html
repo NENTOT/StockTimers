@@ -103,6 +103,12 @@
       border: 1px solid #f5c6cb;
     }
 
+    .status.firebase-connected {
+      background-color: #d1ecf1;
+      color: #0c5460;
+      border: 1px solid #b8daff;
+    }
+
     .stock-category {
       margin-bottom: 20px;
       background: #f8f9fa;
@@ -170,6 +176,22 @@
       background-color: #218838;
     }
 
+    .history-button {
+      background-color: #007bff;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 14px;
+      margin: 10px auto;
+      display: block;
+    }
+
+    .history-button:hover {
+      background-color: #0056b3;
+    }
+
     .loading {
       text-align: center;
       color: #666;
@@ -189,54 +211,37 @@
       border-radius: 10px;
       padding: 20px;
       box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-      grid-column: 1 / -1;
+      margin-top: 20px;
       max-height: 400px;
       overflow-y: auto;
     }
 
-    .history-entry {
+    .history-item {
       background: #f8f9fa;
-      border-radius: 8px;
+      border-radius: 6px;
       padding: 12px;
       margin-bottom: 10px;
-      border-left: 4px solid #6c757d;
+      border-left: 3px solid #007bff;
     }
 
     .history-timestamp {
       font-size: 12px;
       color: #666;
-      margin-bottom: 8px;
-      font-weight: bold;
+      margin-bottom: 5px;
     }
 
     .history-changes {
-      font-size: 13px;
-      color: #495057;
+      font-size: 14px;
+      color: #333;
     }
 
-    .history-changes .added {
-      color: #28a745;
-      font-weight: bold;
-    }
-
-    .history-changes .removed {
-      color: #dc3545;
-      font-weight: bold;
-    }
-
-    .history-changes .changed {
-      color: #007bff;
-      font-weight: bold;
-    }
-
-    .history-stats {
-      text-align: center;
-      color: #666;
-      font-size: 12px;
-      margin-bottom: 10px;
-      padding: 8px;
-      background: #f8f9fa;
-      border-radius: 5px;
+    .change-item {
+      margin: 3px 0;
+      padding: 2px 6px;
+      background: #e7f3ff;
+      border-radius: 3px;
+      display: inline-block;
+      margin-right: 5px;
     }
 
     @media (max-width: 768px) {
@@ -306,7 +311,7 @@
         margin-bottom: 8px;
       }
 
-      .refresh-button {
+      .refresh-button, .history-button {
         padding: 12px 24px;
         font-size: 16px;
         margin: 15px auto;
@@ -322,15 +327,6 @@
       .timestamp {
         font-size: 11px;
         margin-bottom: 10px;
-      }
-
-      .history-section {
-        padding: 15px;
-        max-height: 300px;
-      }
-      
-      .history-entry {
-        padding: 10px;
       }
     }
 
@@ -384,7 +380,7 @@
         font-size: 14px;
       }
 
-      .refresh-button {
+      .refresh-button, .history-button {
         padding: 10px 20px;
         font-size: 14px;
       }
@@ -432,10 +428,18 @@
         Connecting to stock service...
       </div>
 
+      <div id="firebase-status" class="status firebase-connected">
+        🔥 Firebase: Connecting...
+      </div>
+
       <div class="timestamp" id="stock-timestamp">Last updated: --</div>
 
       <button class="refresh-button" onclick="refreshAll()" id="refreshAllBtn">
         🔄 Refresh
+      </button>
+
+      <button class="history-button" onclick="toggleHistory()" id="historyBtn">
+        📊 Show History
       </button>
 
       <div id="stock-container">
@@ -445,31 +449,63 @@
   </div>
 
   <!-- History Section -->
-  <div class="history-section">
-    <div class="section-title">📋 Stock History</div>
-    <div class="history-stats" id="history-stats">
-      Session started: <span id="session-start">--</span> | Changes tracked: <span id="changes-count">0</span>
-    </div>
+  <div class="history-section" id="history-section" style="display: none;">
+    <div class="section-title">📈 Stock Change History</div>
     <div id="history-container">
-      <div class="loading">No stock changes recorded yet...</div>
+      <div class="loading">Loading history...</div>
     </div>
   </div>
 
+  <!-- Firebase SDK -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.7.1/firebase-app.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.7.1/firebase-firestore.min.js"></script>
+
   <script>
+    // Firebase Configuration - Use environment variables or fallback to defaults
+    const firebaseConfig = {
+      apiKey: window.FIREBASE_API_KEY || "AIzaSyAALOGLNNT9SOG4ypxrLH6ZbPd-bubakYA",
+      authDomain: window.FIREBASE_AUTH_DOMAIN || "gagstockdb.firebaseapp.com",
+      projectId: window.FIREBASE_PROJECT_ID || "gagstockdb",
+      storageBucket: window.FIREBASE_STORAGE_BUCKET || "gagstockdb.firebasestorage.app",
+      messagingSenderId: window.FIREBASE_MESSAGING_SENDER_ID || "66513958029",
+      appId: window.FIREBASE_APP_ID || "1:66513958029:web:eb8bc26fd8694644719ec4"
+    };
+
+    // Initialize Firebase
+    let db = null;
+    let firebaseApp = null;
+
+    async function initializeFirebase() {
+      try {
+        firebaseApp = firebase.initializeApp(firebaseConfig);
+        db = firebase.firestore();
+        
+        // Test connection
+        await db.collection('stock_history').limit(1).get();
+        
+        document.getElementById('firebase-status').textContent = '🔥 Firebase: Connected';
+        document.getElementById('firebase-status').className = 'status firebase-connected';
+        console.log('✅ Firebase initialized successfully');
+        
+        return true;
+      } catch (error) {
+        console.error('❌ Firebase initialization failed:', error);
+        document.getElementById('firebase-status').textContent = '🔥 Firebase: Connection failed';
+        document.getElementById('firebase-status').className = 'status disconnected';
+        return false;
+      }
+    }
+
     // API Configuration
     const API_BASE_URL = 'https://grow-a-garden-api-4ses.onrender.com/api';
-    const UPDATE_INTERVAL = 1000;
-    
-    // In-memory storage (no localStorage - doesn't work in Claude.ai)
-    let stockHistory = [];
-    let sessionStartTime = new Date();
-    const MAX_HISTORY_ENTRIES = 30; // Reduced to prevent memory issues
+    const UPDATE_INTERVAL = 1000; // 1 second for timers
 
     // State management
     let timerUpdateInterval;
     let previousStockData = null;
     let stockRefreshTimeout = null;
     let restockTimes = {};
+    let historyVisible = false;
 
     // Timer elements
     const timerElements = {
@@ -489,6 +525,8 @@
     const stockStatusElement = document.getElementById('stock-status');
     const stockContainer = document.getElementById('stock-container');
     const stockTimestamp = document.getElementById('stock-timestamp');
+    const historyContainer = document.getElementById('history-container');
+    const historySection = document.getElementById('history-section');
 
     // Timer mapping for calculated timers
     const timerMapping = {
@@ -497,6 +535,74 @@
       'eggTimer': 'egg',
       'cosmeticTimer': 'cosmetic'
     };
+
+    // Firebase Database Functions
+    async function saveStockToFirebase(stockData) {
+      if (!db) return;
+      
+      try {
+        const docData = {
+          timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+          stockData: stockData,
+          categories: {
+            seeds: stockData.seedsStock || [],
+            gear: stockData.gearStock || [],
+            eggs: stockData.eggStock || [],
+            cosmetics: stockData.cosmeticsStock || []
+          }
+        };
+
+        await db.collection('stock_history').add(docData);
+        console.log('✅ Stock data saved to Firebase');
+      } catch (error) {
+        console.error('❌ Error saving to Firebase:', error);
+      }
+    }
+
+    async function saveStockChangeToFirebase(changes) {
+      if (!db || !changes || changes.length === 0) return;
+      
+      try {
+        const docData = {
+          timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+          changeType: 'stock_change',
+          changes: changes,
+          changeCount: changes.length
+        };
+
+        await db.collection('stock_changes').add(docData);
+        console.log('✅ Stock changes saved to Firebase:', changes.length, 'changes');
+      } catch (error) {
+        console.error('❌ Error saving changes to Firebase:', error);
+      }
+    }
+
+    async function getStockHistoryFromFirebase(limit = 20) {
+      if (!db) return [];
+      
+      try {
+        const snapshot = await db.collection('stock_changes')
+          .orderBy('timestamp', 'desc')
+          .limit(limit)
+          .get();
+
+        const history = [];
+        snapshot.forEach(doc => {
+          const data = doc.data();
+          history.push({
+            id: doc.id,
+            timestamp: data.timestamp?.toDate() || new Date(),
+            changes: data.changes || [],
+            changeCount: data.changeCount || 0
+          });
+        });
+
+        return history;
+      } catch (error) {
+        console.error('❌ Error fetching history from Firebase:', error);
+        return [];
+      }
+    }
 
     // Utility functions
     function formatTime(seconds) {
@@ -523,44 +629,70 @@
       }
     }
 
-    // Function to compare stock data - only compare actual stock items
+    // Enhanced stock comparison with detailed change tracking
     function compareStockData(newData, oldData) {
-      if (!oldData) return false;
+      if (!oldData) return { hasChanges: false, changes: [] };
       
       try {
-        const categories = ['seedsStock', 'gearStock', 'eggStock', 'cosmeticsStock'];
+        const changes = [];
+        const categories = [
+          { key: 'seedsStock', name: 'Seeds', emoji: '🌱' },
+          { key: 'gearStock', name: 'Gear', emoji: '⚙️' },
+          { key: 'eggStock', name: 'Eggs', emoji: '🥚' },
+          { key: 'cosmeticsStock', name: 'Cosmetics', emoji: '💄' }
+        ];
         
         for (const category of categories) {
-          const newItems = newData[category] || [];
-          const oldItems = oldData[category] || [];
+          const newItems = newData[category.key] || [];
+          const oldItems = oldData[category.key] || [];
           
-          // Compare array lengths first
-          if (newItems.length !== oldItems.length) {
-            console.log(`📊 ${category} length changed: ${oldItems.length} → ${newItems.length}`);
-            return false;
+          // Create maps for easier comparison
+          const newMap = new Map(newItems.map(item => [item.name, item.value]));
+          const oldMap = new Map(oldItems.map(item => [item.name, item.value]));
+          
+          // Check for new items
+          for (const [name, value] of newMap) {
+            if (!oldMap.has(name)) {
+              changes.push({
+                type: 'added',
+                category: category.name,
+                emoji: category.emoji,
+                item: name,
+                value: value
+              });
+            } else if (oldMap.get(name) !== value) {
+              changes.push({
+                type: 'changed',
+                category: category.name,
+                emoji: category.emoji,
+                item: name,
+                oldValue: oldMap.get(name),
+                newValue: value
+              });
+            }
           }
           
-          // Sort items by name for consistent comparison
-          const newSorted = [...newItems].sort((a, b) => a.name.localeCompare(b.name));
-          const oldSorted = [...oldItems].sort((a, b) => a.name.localeCompare(b.name));
-          
-          // Compare each item
-          for (let i = 0; i < newSorted.length; i++) {
-            const newItem = newSorted[i];
-            const oldItem = oldSorted[i];
-            
-            if (newItem.name !== oldItem.name || newItem.value !== oldItem.value) {
-              console.log(`📊 ${category} item changed: ${oldItem.name}(${oldItem.value}) → ${newItem.name}(${newItem.value})`);
-              return false;
+          // Check for removed items
+          for (const [name, value] of oldMap) {
+            if (!newMap.has(name)) {
+              changes.push({
+                type: 'removed',
+                category: category.name,
+                emoji: category.emoji,
+                item: name,
+                value: value
+              });
             }
           }
         }
         
-        console.log('📊 Stock comparison: No changes detected in actual stock items');
-        return true;
+        return {
+          hasChanges: changes.length > 0,
+          changes: changes
+        };
       } catch (error) {
         console.error('Error comparing stock data:', error);
-        return false;
+        return { hasChanges: false, changes: [] };
       }
     }
 
@@ -639,6 +771,9 @@
         const stockData = await response.json();
         displayStock(stockData);
         
+        // Save to Firebase
+        await saveStockToFirebase(stockData);
+        
         stockTimestamp.textContent = `Last updated: ${new Date().toLocaleString()}`;
         updateStockStatus(true, `Stock data loaded successfully`);
         
@@ -648,6 +783,46 @@
         stockContainer.innerHTML = `<div class="error">Error loading stock data: ${error.message}</div>`;
         updateStockStatus(false, `Error: ${error.message}`);
         return null;
+      }
+    }
+
+    // Enhanced stock fetch with comparison and Firebase logging
+    async function fetchStockWithComparison() {
+      console.log('📦 Fetching stock with comparison...');
+      
+      const newStockData = await fetchStock();
+      
+      if (newStockData) {
+        const comparison = compareStockData(newStockData, previousStockData);
+        
+        if (comparison.hasChanges) {
+          console.log('✅ Stock changed! New items detected:', comparison.changes.length, 'changes');
+          updateStockStatus(true, `Stock updated - ${comparison.changes.length} changes detected!`);
+          
+          // Save changes to Firebase
+          await saveStockChangeToFirebase(comparison.changes);
+          
+          // Clear any pending auto-refresh
+          if (stockRefreshTimeout) {
+            clearTimeout(stockRefreshTimeout);
+            stockRefreshTimeout = null;
+          }
+        } else {
+          console.log('🔄 Stock unchanged, scheduling refresh in 30 seconds...');
+          updateStockStatus(true, 'Stock unchanged - Auto-refresh in 30 seconds');
+          
+          if (stockRefreshTimeout) {
+            clearTimeout(stockRefreshTimeout);
+          }
+          
+          stockRefreshTimeout = setTimeout(() => {
+            console.log('🔄 Auto-refreshing stock after 30 seconds...');
+            fetchStockWithComparison();
+          }, 30000);
+        }
+        
+        // Store a deep copy for comparison
+        previousStockData = JSON.parse(JSON.stringify(newStockData));
       }
     }
 
@@ -693,183 +868,70 @@
       stockContainer.innerHTML = html;
     }
 
-    // History functions - now using in-memory storage only
-    function addToHistory(changes) {
-      if (changes.length === 0) return;
-      
-      const historyEntry = {
-        timestamp: new Date(),
-        changes: changes
-      };
-      
-      stockHistory.unshift(historyEntry);
-      
-      // Keep only the last MAX_HISTORY_ENTRIES
-      if (stockHistory.length > MAX_HISTORY_ENTRIES) {
-        stockHistory = stockHistory.slice(0, MAX_HISTORY_ENTRIES);
-      }
-      
-      console.log(`📋 Added ${changes.length} changes to history. Total entries: ${stockHistory.length}`);
-      displayHistory();
-    }
+    // History functions
+    async function displayHistory() {
+      try {
+        historyContainer.innerHTML = '<div class="loading">Loading history...</div>';
+        
+        const history = await getStockHistoryFromFirebase(50);
+        
+        if (history.length === 0) {
+          historyContainer.innerHTML = '<div class="loading">No history available</div>';
+          return;
+        }
 
-    function compareStockForHistory(newData, oldData) {
-      if (!oldData) return [];
-      
-      const changes = [];
-      const categories = [
-        { key: 'seedsStock', name: 'Seeds', emoji: '🌱' },
-        { key: 'gearStock', name: 'Gears', emoji: '⚙️' },
-        { key: 'eggStock', name: 'Eggs', emoji: '🥚' },
-        { key: 'cosmeticsStock', name: 'Cosmetics', emoji: '💄' }
-      ];
-      
-      categories.forEach(category => {
-        const newItems = newData[category.key] || [];
-        const oldItems = oldData[category.key] || [];
-        
-        // Create maps for easier comparison
-        const newMap = new Map(newItems.map(item => [item.name, item.value]));
-        const oldMap = new Map(oldItems.map(item => [item.name, item.value]));
-        
-        // Check for new items
-        newItems.forEach(item => {
-          if (!oldMap.has(item.name)) {
-            changes.push({
-              type: 'added',
-              category: category.name,
-              emoji: category.emoji,
-              item: item.name,
-              value: item.value
-            });
-          } else if (oldMap.get(item.name) !== item.value) {
-            changes.push({
-              type: 'changed',
-              category: category.name,
-              emoji: category.emoji,
-              item: item.name,
-              oldValue: oldMap.get(item.name),
-              newValue: item.value
-            });
-          }
-        });
-        
-        // Check for removed items
-        oldItems.forEach(item => {
-          if (!newMap.has(item.name)) {
-            changes.push({
-              type: 'removed',
-              category: category.name,
-              emoji: category.emoji,
-              item: item.name,
-              value: item.value
-            });
-          }
-        });
-      });
-      
-      return changes;
-    }
-
-    function displayHistory() {
-      const historyContainer = document.getElementById('history-container');
-      
-      // Update stats
-      const sessionStartEl = document.getElementById('session-start');
-      const changesCountEl = document.getElementById('changes-count');
-      
-      if (sessionStartEl) {
-        sessionStartEl.textContent = sessionStartTime.toLocaleString();
-      }
-      
-      if (changesCountEl) {
-        const totalChanges = stockHistory.reduce((total, entry) => total + entry.changes.length, 0);
-        changesCountEl.textContent = totalChanges;
-      }
-      
-      if (stockHistory.length === 0) {
-        historyContainer.innerHTML = '<div class="loading">No stock changes recorded yet...</div>';
-        return;
-      }
-      
-      let html = '';
-      
-      stockHistory.forEach((entry, index) => {
-        const timestamp = new Date(entry.timestamp).toLocaleString();
-        
-        html += `
-          <div class="history-entry">
-            <div class="history-timestamp">#${index + 1} - ${timestamp}</div>
-            <div class="history-changes">
-        `;
-        
-        entry.changes.forEach(change => {
-          let changeText = '';
+        let html = '';
+        history.forEach(entry => {
+          const date = entry.timestamp.toLocaleString();
+          const changeCount = entry.changeCount || 0;
           
-          switch (change.type) {
-            case 'added':
-              changeText = `<span class="added">+ ${change.emoji} ${change.item} (${change.value})</span>`;
-              break;
-            case 'removed':
-              changeText = `<span class="removed">- ${change.emoji} ${change.item} (${change.value})</span>`;
-              break;
-            case 'changed':
-              changeText = `<span class="changed">~ ${change.emoji} ${change.item} (${change.oldValue} → ${change.newValue})</span>`;
-              break;
-          }
+          html += `
+            <div class="history-item">
+              <div class="history-timestamp">${date} (${changeCount} changes)</div>
+              <div class="history-changes">
+          `;
           
-          html += `<div>${changeText}</div>`;
-        });
-        
-        html += `
+          entry.changes.forEach(change => {
+            let changeText = '';
+            switch (change.type) {
+              case 'added':
+                changeText = `${change.emoji} Added: ${change.item} (${change.value})`;
+                break;
+              case 'removed':
+                changeText = `${change.emoji} Removed: ${change.item} (${change.value})`;
+                break;
+              case 'changed':
+                changeText = `${change.emoji} Changed: ${change.item} (${change.oldValue} → ${change.newValue})`;
+                break;
+            }
+            
+            html += `<div class="change-item">${changeText}</div>`;
+          });
+          
+          html += `
+              </div>
             </div>
-          </div>
-        `;
-      });
-      
-      historyContainer.innerHTML = html;
+          `;
+        });
+
+        historyContainer.innerHTML = html;
+      } catch (error) {
+        console.error('Error displaying history:', error);
+        historyContainer.innerHTML = '<div class="error">Error loading history</div>';
+      }
     }
 
-    // Enhanced stock fetch with comparison and history tracking
-    async function fetchStockWithComparison() {
-      console.log('📦 Fetching stock with comparison...');
+    function toggleHistory() {
+      historyVisible = !historyVisible;
+      const historyBtn = document.getElementById('historyBtn');
       
-      const newStockData = await fetchStock();
-      
-      if (newStockData) {
-        const stockUnchanged = compareStockData(newStockData, previousStockData);
-        
-        // Track changes for history
-        const changes = compareStockForHistory(newStockData, previousStockData);
-        if (changes.length > 0) {
-          console.log(`📋 Detected ${changes.length} changes:`, changes);
-          addToHistory(changes);
-        }
-        
-        if (stockUnchanged) {
-          console.log('🔄 Stock unchanged, scheduling refresh in 30 seconds...');
-          updateStockStatus(true, 'Stock unchanged - Auto-refresh in 30 seconds');
-          
-          if (stockRefreshTimeout) {
-            clearTimeout(stockRefreshTimeout);
-          }
-          
-          stockRefreshTimeout = setTimeout(() => {
-            console.log('🔄 Auto-refreshing stock after 30 seconds...');
-            fetchStockWithComparison();
-          }, 30000);
-        } else {
-          console.log('✅ Stock changed! New items detected');
-          updateStockStatus(true, 'Stock updated - New items available!');
-          
-          if (stockRefreshTimeout) {
-            clearTimeout(stockRefreshTimeout);
-            stockRefreshTimeout = null;
-          }
-        }
-        
-        // Store a deep copy for comparison
-        previousStockData = JSON.parse(JSON.stringify(newStockData));
+      if (historyVisible) {
+        historySection.style.display = 'block';
+        historyBtn.textContent = '📊 Hide History';
+        displayHistory();
+      } else {
+        historySection.style.display = 'none';
+        historyBtn.textContent = '📊 Show History';
       }
     }
 
@@ -882,13 +944,18 @@
       
       // Calculate timers and fetch stock
       calculateTimers();
-      fetchStockWithComparison();
+      fetchStock();
+      
+      // Refresh history if visible
+      if (historyVisible) {
+        displayHistory();
+      }
     }
 
     // Update intervals
     function startUpdates() {
       calculateTimers();
-      fetchStockWithComparison();
+      fetchStock();
       timerUpdateInterval = setInterval(() => {
         updateTimerDisplay(); // Update display every second
         // Recalculate timers every 60 seconds to handle any drift
@@ -928,15 +995,29 @@
     });
 
     // Initialize
-    function initialize() {
-      sessionStartTime = new Date();
-      displayHistory(); // Initialize history display
+    async function initialize() {
+      // Initialize Firebase first
+      const firebaseConnected = await initializeFirebase();
+      
+      if (firebaseConnected) {
+        console.log('🔥 Firebase connected, starting updates...');
+      } else {
+        console.log('⚠️ Firebase not connected, continuing without database features...');
+      }
+      
+      // Start the main application
       startUpdates();
       
       // Set up manual refresh button
       const refreshBtn = document.getElementById('refreshAllBtn');
       if (refreshBtn) {
         refreshBtn.addEventListener('click', refreshAll);
+      }
+      
+      // Set up history button
+      const historyBtn = document.getElementById('historyBtn');
+      if (historyBtn) {
+        historyBtn.addEventListener('click', toggleHistory);
       }
     }
 
