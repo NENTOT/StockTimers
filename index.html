@@ -2,81 +2,60 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Stock Timers & Inventory</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <h1>🌱 Stock Timers & Inventory Dashboard</h1>
-
-  <div class="main-container">
-    <!-- Timer Section -->
-    <div class="timer-section">
-      <div class="section-title">⏰ Stock Refresh Timers</div>
-      
-      <div id="timer-status" class="status connected">
-        Timers running (calculated)
-      </div>
-
-      <div class="timer" id="seed-timer">
-        <div class="timer-label">🌱 Seed Restock</div>
-        <div class="timer-time" id="seedTimer">--:--</div>
-      </div>
-
-      <div class="timer" id="gear-timer">
-        <div class="timer-label">⚙️ Gear Restock</div>
-        <div class="timer-time" id="gearTimer">--:--</div>
-      </div>
-
-      <div class="timer" id="egg-timer">
-        <div class="timer-label">🥚 Egg Restock</div>
-        <div class="timer-time" id="eggTimer">--:--</div>
-      </div>
-
-      <div class="timer" id="cosmetic-timer">
-        <div class="timer-label">💄 Cosmetic Restock</div>
-        <div class="timer-time" id="cosmeticTimer">--:--:--</div>
-      </div>
+      <div class="header">
+        <h1>🕐 Stock Timers</h1>
+        <div>
+            <span id="stock-status" class="status disconnected">Connecting...</span>
+            <span id="firebase-status" class="status disconnected">🔥 Firebase: Connecting...</span>
+        </div>
     </div>
 
-    <!-- Stock Section -->
+    <div class="timers-container">
+        <div id="seed-timer" class="timer">
+            <div class="timer-label">🌱 Seeds</div>
+            <div id="seedTimer" class="timer-time">--:--</div>
+        </div>
+        
+        <div id="gear-timer" class="timer">
+            <div class="timer-label">⚙️ Gear</div>
+            <div id="gearTimer" class="timer-time">--:--</div>
+        </div>
+        
+        <div id="egg-timer" class="timer">
+            <div class="timer-label">🥚 Eggs</div>
+            <div id="eggTimer" class="timer-time">--:--</div>
+        </div>
+        
+        <div id="cosmetic-timer" class="timer">
+            <div class="timer-label">💄 Cosmetics</div>
+            <div id="cosmeticTimer" class="timer-time">--:--</div>
+        </div>
+    </div>
+
+    <div class="controls">
+        <button id="refreshAllBtn" class="btn">🔄 Refresh All</button>
+        <button id="historyBtn" class="btn">📊 Show History</button>
+    </div>
+
     <div class="stock-section">
-      <div class="section-title">📦 Current Stock Levels</div>
-      
-      <div id="stock-status" class="status disconnected">
-        Connecting to stock service...
-      </div>
-
-      <div id="firebase-status" class="status firebase-connected">
-        🔥 Firebase: Connecting...
-      </div>
-
-      <div class="timestamp" id="stock-timestamp">Last updated: --</div>
-
-      <button class="refresh-button" onclick="refreshAll()" id="refreshAllBtn">
-        🔄 Refresh
-      </button>
-
-      <button class="history-button" onclick="toggleHistory()" id="historyBtn">
-        📊 Show History
-      </button>
-
-      <div id="stock-container">
-        <div class="loading">Loading stock data...</div>
-      </div>
+        <h2>📦 Current Stock</h2>
+        <div id="stock-container" class="loading">Loading stock data...</div>
+        <div id="stock-timestamp" class="timestamp"></div>
     </div>
-  </div>
 
-  <!-- History Section -->
-  <div class="history-section" id="history-section" style="display: none;">
-    <div class="section-title">📈 Stock Change History</div>
-    <div id="history-container">
-      <div class="loading">Loading history...</div>
+    <div id="history-section" class="history-section" style="display: none;">
+        <h2>📊 Stock History</h2>
+        <div id="history-container"></div>
     </div>
-  </div>
 
   <!-- Firebase SDK -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.7.1/firebase-app.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.7.1/firebase-firestore.min.js"></script>
+   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
   <script src="script.js"></script>
 </body>
 </html>
