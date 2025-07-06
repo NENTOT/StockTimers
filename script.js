@@ -167,70 +167,70 @@
         }
 
         // Enhanced stock comparison with detailed change tracking
-        function compareStockData(newData, oldData) {
-            if (!oldData) return { hasChanges: false, changes: [] };
+      function compareStockData(newData, oldData) {
+        if (!oldData) return { hasChanges: false, changes: [] };
+        
+        try {
+            const changes = [];
+            const categories = [
+            { key: 'seedsStock', name: 'Seeds', emoji: '🌱' },
+            { key: 'gearStock', name: 'Gear', emoji: '⚙️' },
+            { key: 'eggStock', name: 'Eggs', emoji: '🥚' },
+            { key: 'cosmeticsStock', name: 'Cosmetics', emoji: '💄' }
+            ];
             
-            try {
-                const changes = [];
-                const categories = [
-                    { key: 'seedsStock', name: 'Seeds', emoji: '🌱' },
-                    { key: 'gearStock', name: 'Gear', emoji: '⚙️' },
-                    { key: 'eggStock', name: 'Eggs', emoji: '🥚' },
-                    { key: 'cosmeticsStock', name: 'Cosmetics', emoji: '💄' }
-                ];
-                
-                for (const category of categories) {
-                    const newItems = newData[category.key] || [];
-                    const oldItems = oldData[category.key] || [];
-                    
-                    // Create maps for easier comparison
-                    const newMap = new Map(newItems.map(item => [item.name, item.value]));
-                    const oldMap = new Map(oldItems.map(item => [item.name, item.value]));
-                    
-                    // Check for new items
-                    for (const [name, value] of newMap) {
-                        if (!oldMap.has(name)) {
-                            changes.push({
-                                type: 'added',
-                                category: category.name,
-                                emoji: category.emoji,
-                                item: name,
-                                value: value
-                            });
-                        } else if (oldMap.get(name) !== value) {
-                            changes.push({
-                                type: 'changed',
-                                category: category.name,
-                                emoji: category.emoji,
-                                item: name,
-                                oldValue: oldMap.get(name),
-                                newValue: value
-                            });
-                        }
-                    }
-                    
-                    // Check for removed items
-                    for (const [name, value] of oldMap) {
-                        if (!newMap.has(name)) {
-                            changes.push({
-                                type: 'removed',
-                                category: category.name,
-                                emoji: category.emoji,
-                                item: name,
-                                value: value
-                            });
-                        }
-                    }
+            for (const category of categories) {
+            const newItems = newData[category.key] || [];
+            const oldItems = oldData[category.key] || [];
+            
+            // Create maps for easier comparison
+            const newMap = new Map(newItems.map(item => [item.name, item.value]));
+            const oldMap = new Map(oldItems.map(item => [item.name, item.value]));
+            
+            // Check for new items
+            for (const [name, value] of newMap) {
+                if (!oldMap.has(name)) {
+                changes.push({
+                    type: 'added',
+                    category: category.name,
+                    emoji: category.emoji,
+                    item: name,
+                    value: value
+                });
+                } else if (oldMap.get(name) !== value) {
+                changes.push({
+                    type: 'changed',
+                    category: category.name,
+                    emoji: category.emoji,
+                    item: name,
+                    oldValue: oldMap.get(name),
+                    newValue: value
+                });
                 }
-                
-                return {
-                    hasChanges: changes.length > 0,
-                    changes: changes
-                };
-            } catch (error) {
-                console.error('Error comparing stock data:', error);
-                return { hasChanges: false, changes: [] };
             }
+            
+            // Check for removed items
+            for (const [name, value] of oldMap) {
+                if (!newMap.has(name)) {
+                changes.push({
+                    type: 'removed',
+                    category: category.name,
+                    emoji: category.emoji,
+                    item: name,
+                    value: value
+                });
+                }
+            }
+            }
+            
+            return {
+            hasChanges: changes.length > 0,
+            changes: changes
+            };
+        } catch (error) {
+            console.error('Error comparing stock data:', error);
+            return { hasChanges: false, changes: [] };
+        }
         }
 
         // Calculate timers based on known restock intervals
@@ -526,7 +526,7 @@
                     changeText = `${change.emoji} Removed: ${change.item} (${change.value})`;
                     break;
                 case 'changed':
-                    changeText = `${change.emoji} Changed: ${change.item} (${change.newValue})`;
+                    changeText = `${change.emoji} Changed: ${change.item} (${change.oldValue})`;
                     break;
                 }
                 
