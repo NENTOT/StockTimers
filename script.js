@@ -338,7 +338,7 @@
 
             let html = '';
             history.forEach(entry => {
-            // Filter to include only 'changed' types
+            // Only include 'changed' entries
             const changedItems = entry.changes.filter(change => change.type === 'changed');
 
             if (changedItems.length === 0) return; // Skip if no changed items
@@ -353,7 +353,9 @@
             `;
 
             changedItems.forEach(change => {
-                const changeText = `${change.emoji} ${change.item} (${change.oldValue})`;
+                // Remove prefixes like "Changed: ", "Added: ", "Removed: " from item name
+                const cleanedItemName = change.item.replace(/^(Changed|Added|Removed):\s*/, '');
+                const changeText = `${change.emoji} ${cleanedItemName} (${change.oldValue})`;
                 html += `<div class="change-item">${changeText}</div>`;
             });
 
