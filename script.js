@@ -298,32 +298,87 @@
         }
 
         // Stock functions
-        async function fetchStock() {
-            try {
-                stockContainer.innerHTML = '<div class="loading">Loading stock data...</div>';
-                
-                const response = await fetch(`${API_BASE_URL}/stock/GetStock`);
-                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      async function fetchStock() {
+  try {
+    stockContainer.innerHTML = '<div class="loading">Loading stock data...</div>';
+    
+    const response = await fetch(`${API_BASE_URL}/stock/GetStock`);
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
-                const stockData = await response.json();
-                displayStock(stockData);
-                
-                // Save to Firebase
-                await saveStockToFirebase(stockData);
-                
-                stockTimestamp.textContent = `Last updated: ${new Date().toLocaleString()}`;
-                updateStockStatus(true, `Stock data loaded successfully`);
-                
-                return stockData;
-            } catch (error) {
-                console.error('Error fetching stock:', error);
-                stockContainer.innerHTML = `<div class="error">Error loading stock data: ${error.message}</div>`;
-                updateStockStatus(false, `Error: ${error.message}`);
-                return null;
+    const stockData = await response.json();
+    
+    // Display the NEW stock data (current stock)
+    displayStock(stockData);
+    
+    // Save full stock snapshot to Firebase
+    await saveStockToFirebase(stockData);
+    
+    stockTimestamp.textContent = `Last updated: ${new Date().toLocaleString()}`;
+    updateStockStatus(true, `Stock data loaded successfully`);
+    
+    return stockData;
+  } catch (error) {
+    console.error('Error fetching stock:', error);
+    stockContainer.innerHTML = `<div class="error">Error loading stock data: ${error.message}</div>`;
+    updateStockStatus(false, `Error: ${error.message}`);
+    return null;
+  }
+}
+
+        // History functions
+        async function displayHistory() {
+        try {
+            historyContainer.innerHTML = '<div class="loading">Loading history...</div>';
+            
+            const history = await getStockHistoryFromFirebase(50);
+            
+            if (history.length === 0) {
+            historyContainer.innerHTML = '<div class="loading">No history available</div>';
+            return;
             }
+
+            let html = '';
+            history.forEach(entry => {
+            const date = entry.timestamp.toLocaleString();
+            const changeCount = entry.changeCount || 0;
+            
+            html += `
+                <div class="history-item">
+                <div class="history-timestamp">${date} (${changeCount} changes)</div>
+                <div class="history-changes">
+            `;
+            
+            entry.changes.forEach(change => {
+                let changeText = '';
+                switch (change.type) {
+                case 'added':
+                    changeText = `${change.emoji} Added: ${change.item} (${change.value})`;
+                    break;
+                case 'removed':
+                    changeText = `${change.emoji} Removed: ${change.item} (was ${change.value})`;
+                    break;
+                case 'changed':
+                    changeText = `${change.emoji} Changed: ${change.item} (was ${change.oldValue})`;
+                    break;
+                }
+                
+                html += `<div class="change-item">${changeText}</div>`;
+            });
+            
+            html += `
+                </div>
+                </div>
+            `;
+            });
+
+            historyContainer.innerHTML = html;
+        } catch (error) {
+            console.error('Error displaying history:', error);
+            historyContainer.innerHTML = '<div class="error">Error loading history</div>';
+        }
         }
 
-        async function fetchStockWithComparison() {
+       async function fetchStockWithComparison() {
         console.log('📦 Fetching stock with comparison...');
         
         const newStockData = await fetchStock();
@@ -335,10 +390,10 @@
             console.log('✅ Stock changed! New items detected:', comparison.changes.length, 'changes');
             updateStockStatus(true, `Stock updated - ${comparison.changes.length} changes detected!`);
             
-            // Save changes to Firebase
+            // Save changes to Firebase BEFORE updating previousStockData
             await saveStockChangeToFirebase(comparison.changes);
             
-            // Only refresh history if it's currently visible to avoid showing current stock as history
+            // Only refresh history if it's currently visible
             if (historyVisible) {
                 displayHistory();
             }
@@ -362,7 +417,7 @@
             }, 30000);
             }
             
-            // Store a deep copy for comparison
+            // Store a deep copy for comparison (this should happen AFTER saving changes)
             previousStockData = JSON.parse(JSON.stringify(newStockData));
         }
         }
