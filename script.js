@@ -299,38 +299,38 @@
 
         // Stock functions
       async function fetchStock() {
-  try {
-    stockContainer.innerHTML = '<div class="loading">Loading stock data...</div>';
-    
-    const response = await fetch(`${API_BASE_URL}/stock/GetStock`);
-    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        try {
+            stockContainer.innerHTML = '<div class="loading">Loading stock data...</div>';
+            
+            const response = await fetch(`${API_BASE_URL}/stock/GetStock`);
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
-    const stockData = await response.json();
-    
-    // Display the NEW stock data (current stock)
-    displayStock(stockData);
-    
-    // Save full stock snapshot to Firebase
-    await saveStockToFirebase(stockData);
-    
-    stockTimestamp.textContent = `Last updated: ${new Date().toLocaleString()}`;
-    updateStockStatus(true, `Stock data loaded successfully`);
-    
-    return stockData;
-  } catch (error) {
-    console.error('Error fetching stock:', error);
-    stockContainer.innerHTML = `<div class="error">Error loading stock data: ${error.message}</div>`;
-    updateStockStatus(false, `Error: ${error.message}`);
-    return null;
-  }
-}
+            const stockData = await response.json();
+            
+            // Display the NEW stock data (current stock)
+            displayStock(stockData);
+            
+            // Save full stock snapshot to Firebase
+            await saveStockToFirebase(stockData);
+            
+            stockTimestamp.textContent = `Last updated: ${new Date().toLocaleString()}`;
+            updateStockStatus(true, `Stock data loaded successfully`);
+            
+            return stockData;
+        } catch (error) {
+            console.error('Error fetching stock:', error);
+            stockContainer.innerHTML = `<div class="error">Error loading stock data: ${error.message}</div>`;
+            updateStockStatus(false, `Error: ${error.message}`);
+            return null;
+        }
+        }
         // History functions
         async function displayHistory() {
         try {
             historyContainer.innerHTML = '<div class="loading">Loading history...</div>';
-            
+
             const history = await getStockHistoryFromFirebase(50);
-            
+
             if (history.length === 0) {
             historyContainer.innerHTML = '<div class="loading">No history available</div>';
             return;
@@ -338,35 +338,25 @@
 
             let html = '';
             history.forEach(entry => {
+            // Filter to include only 'changed' types
+            const changedItems = entry.changes.filter(change => change.type === 'changed');
+
+            if (changedItems.length === 0) return; // Skip if no changed items
+
             const date = entry.timestamp.toLocaleString();
-            const changeCount = entry.changeCount || 0;
-            
+            const changeCount = changedItems.length;
+
             html += `
                 <div class="history-item">
                 <div class="history-timestamp">${date} (${changeCount} changes)</div>
                 <div class="history-changes">
             `;
-            
-            entry.changes.forEach(change => {
-                let changeText = '';
-                switch (change.type) {
-                case 'added':
-                    // For added items, show the value that was added
-                    changeText = `${change.emoji} ${change.item} (${change.value})`;
-                    break;
-                case 'removed':
-                    // For removed items, show the value that was removed
-                    changeText = `${change.emoji} ${change.item} (${change.value})`;
-                    break;
-                case 'changed':
-                    // For changed items, show the old value
-                    changeText = `${change.emoji} ${change.item} (${change.oldValue})`;
-                    break;
-                }
-                
+
+            changedItems.forEach(change => {
+                const changeText = `${change.emoji} ${change.item} (${change.oldValue})`;
                 html += `<div class="change-item">${changeText}</div>`;
             });
-            
+
             html += `
                 </div>
                 </div>
@@ -379,6 +369,7 @@
             historyContainer.innerHTML = '<div class="error">Error loading history</div>';
         }
         }
+
        async function fetchStockWithComparison() {
         console.log('📦 Fetching stock with comparison...');
         
