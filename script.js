@@ -497,63 +497,55 @@
         }
         // History functions
         async function displayHistory() {
-            try {
-                historyContainer.innerHTML = '<div class="loading">Loading history...</div>';
-                
-                const history = await getStockHistoryFromFirebase(50);
-                
-                if (history.length === 0) {
-                    historyContainer.innerHTML = '<div class="loading">No history available yet</div>';
-                    return;
-                }
-
-                let html = '';
-                history.forEach(entry => {
-                    const date = entry.timestamp.toLocaleString('en-US', { 
-                        timeZone: 'Asia/Manila',
-                        year: 'numeric',
-                        month: 'short',
-                        day: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        second: '2-digit'
-                    });
-                    const changeCount = entry.changeCount || 0;
-                    
-                    html += `
-                        <div class="history-item">
-                            <div class="history-timestamp">${date} (${changeCount} changes)</div>
-                            <div class="history-changes">
-                    `;
-                    
-                    entry.changes.forEach(change => {
-                        let changeText = '';
-                        switch (change.type) {
-                            case 'added':
-                                changeText = `${change.emoji} Added: ${change.item} (${change.value})`;
-                                break;
-                            case 'removed':
-                                changeText = `${change.emoji} Removed: ${change.item} (${change.value})`;
-                                break;
-                            case 'changed':
-                                changeText = `${change.emoji} Changed: ${change.item} (${change.oldValue} → ${change.newValue})`;
-                                break;
-                        }
-                        
-                        html += `<div class="change-item">${changeText}</div>`;
-                    });
-                    
-                    html += `
-                            </div>
-                        </div>
-                    `;
-                });
-
-                historyContainer.innerHTML = html;
-            } catch (error) {
-                console.error('Error displaying history:', error);
-                historyContainer.innerHTML = '<div class="error">Error loading history</div>';
+        try {
+            historyContainer.innerHTML = '<div class="loading">Loading history...</div>';
+            
+            const history = await getStockHistoryFromFirebase(50);
+            
+            if (history.length === 0) {
+            historyContainer.innerHTML = '<div class="loading">No history available</div>';
+            return;
             }
+
+            let html = '';
+            history.forEach(entry => {
+            const date = entry.timestamp.toLocaleString();
+            const changeCount = entry.changeCount || 0;
+            
+            html += `
+                <div class="history-item">
+                <div class="history-timestamp">${date} (${changeCount} changes)</div>
+                <div class="history-changes">
+            `;
+            
+            entry.changes.forEach(change => {
+                let changeText = '';
+                switch (change.type) {
+                case 'added':
+                    changeText = `${change.emoji} Added: ${change.item} (${change.value})`;
+                    break;
+                case 'removed':
+                    changeText = `${change.emoji} Removed: ${change.item} (${change.value})`;
+                    break;
+                case 'changed':
+                    changeText = `${change.emoji} Changed: ${change.item} (${change.newValue})`;
+                    break;
+                }
+                
+                html += `<div class="change-item">${changeText}</div>`;
+            });
+            
+            html += `
+                </div>
+                </div>
+            `;
+            });
+
+            historyContainer.innerHTML = html;
+        } catch (error) {
+            console.error('Error displaying history:', error);
+            historyContainer.innerHTML = '<div class="error">Error loading history</div>';
+        }
         }
 
         function toggleHistory() {
