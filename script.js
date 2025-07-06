@@ -352,17 +352,19 @@
                 let changeText = '';
                 switch (change.type) {
                 case 'added':
-                    changeText = `${change.emoji} Added: ${change.item} (${change.value})`;
+                    // Skip added items - they don't have old stock
                     break;
                 case 'removed':
-                    changeText = `${change.emoji} Removed: ${change.item} (was ${change.value})`;
+                    changeText = `${change.emoji} ${change.item} (${change.value})`;
                     break;
                 case 'changed':
-                    changeText = `${change.emoji} Changed: ${change.item} (was ${change.oldValue})`;
+                    changeText = `${change.emoji} ${change.item} (${change.oldValue})`;
                     break;
                 }
                 
+                if (changeText) {
                 html += `<div class="change-item">${changeText}</div>`;
+                }
             });
             
             html += `
