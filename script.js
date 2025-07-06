@@ -1,4 +1,4 @@
-  // Firebase Configuration - Use environment variables or fallback to defaults
+ // Firebase Configuration - Use environment variables or fallback to defaults
         const firebaseConfig = {
             apiKey: window.FIREBASE_API_KEY || "AIzaSyAALOGLNNT9SOG4ypxrLH6ZbPd-bubakYA",
             authDomain: window.FIREBASE_AUTH_DOMAIN || "gagstockdb.firebaseapp.com",
@@ -20,14 +20,14 @@
                 // Test connection
                 await db.collection('stock_history').limit(1).get();
                 
-                document.getElementById('firebase-status').textContent = 'Database: Connected';
+                document.getElementById('firebase-status').textContent = '🔥 Firebase: Connected';
                 document.getElementById('firebase-status').className = 'status firebase-connected';
-                console.log('✅ Database initialized successfully');
+                console.log('✅ Firebase initialized successfully');
                 
                 return true;
             } catch (error) {
                 console.error('❌ Firebase initialization failed:', error);
-                document.getElementById('firebase-status').textContent = 'Database: Connection failed';
+                document.getElementById('firebase-status').textContent = '🔥 Firebase: Connection failed';
                 document.getElementById('firebase-status').className = 'status disconnected';
                 return false;
             }
@@ -90,9 +90,9 @@
                 };
 
                 await db.collection('stock_history').add(docData);
-                console.log('✅ Stock data saved to Database');
+                console.log('✅ Stock data saved to Firebase');
             } catch (error) {
-                console.error('❌ Error saving to Database:', error);
+                console.error('❌ Error saving to Firebase:', error);
             }
         }
 
@@ -108,9 +108,9 @@
                 };
 
                 await db.collection('stock_changes').add(docData);
-                console.log('✅ Stock changes saved to Database:', changes.length, 'changes');
+                console.log('✅ Stock changes saved to Firebase:', changes.length, 'changes');
             } catch (error) {
-                console.error('❌ Error saving changes to Database:', error);
+                console.error('❌ Error saving changes to Firebase:', error);
             }
         }
 
@@ -136,7 +136,7 @@
 
                 return history;
             } catch (error) {
-                console.error('❌ Error fetching history from Database:', error);
+                console.error('❌ Error fetching history from Firebase:', error);
                 return [];
             }
         }
@@ -339,6 +339,12 @@
                     // Save changes to Firebase
                     await saveStockChangeToFirebase(comparison.changes);
                     
+                    // Auto-refresh history if visible
+                    if (historyVisible) {
+                        console.log('🔄 Auto-refreshing history due to stock changes...');
+                        displayHistory();
+                    }
+                    
                     // Clear any pending auto-refresh
                     if (stockRefreshTimeout) {
                         clearTimeout(stockRefreshTimeout);
@@ -405,6 +411,90 @@
             stockContainer.innerHTML = html;
         }
 
+        // Database cleanup function
+        async function clearOldHistoryData() {
+            if (!db) return;
+            
+            try {
+                console.log('🗑️ Starting daily database cleanup...');
+                
+                // Clear stock_changes collection
+                const changesSnapshot = await db.collection('stock_changes').get();
+                const changesBatch = db.batch();
+                
+                changesSnapshot.forEach(doc => {
+                    changesBatch.delete(doc.ref);
+                });
+                
+                if (changesSnapshot.size > 0) {
+                    await changesBatch.commit();
+                    console.log(`✅ Cleared ${changesSnapshot.size} documents from stock_changes`);
+                }
+                
+                // Clear stock_history collection
+                const historySnapshot = await db.collection('stock_history').get();
+                const historyBatch = db.batch();
+                
+                historySnapshot.forEach(doc => {
+                    historyBatch.delete(doc.ref);
+                });
+                
+                if (historySnapshot.size > 0) {
+                    await historyBatch.commit();
+                    console.log(`✅ Cleared ${historySnapshot.size} documents from stock_history`);
+                }
+                
+                // Add cleanup log
+                await db.collection('system_logs').add({
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                    action: 'daily_cleanup',
+                    changesCleared: changesSnapshot.size,
+                    historyCleared: historySnapshot.size
+                });
+                
+                console.log('✅ Daily database cleanup completed successfully');
+                
+                // Refresh history display if visible
+                if (historyVisible) {
+                    displayHistory();
+                }
+                
+            } catch (error) {
+                console.error('❌ Error during daily cleanup:', error);
+            }
+        }
+
+        // Schedule daily cleanup at 12 AM Philippine time
+        function scheduleDailyCleanup() {
+            const now = new Date();
+            
+            // Convert to Philippine time (UTC+8)
+            const philippineTime = new Date(now.getTime() + (8 * 60 * 60 * 1000));
+            
+            // Calculate next 12 AM Philippine time
+            const nextMidnight = new Date(philippineTime);
+            nextMidnight.setUTCHours(16, 0, 0, 0); // 12 AM Philippine time = 4 PM UTC (previous day)
+            
+            // If it's already past midnight today, schedule for tomorrow
+            if (nextMidnight <= now) {
+                nextMidnight.setUTCDate(nextMidnight.getUTCDate() + 1);
+            }
+            
+            const timeUntilMidnight = nextMidnight.getTime() - now.getTime();
+            
+            console.log(`🕐 Next database cleanup scheduled for: ${nextMidnight.toLocaleString('en-US', { timeZone: 'Asia/Manila' })} (Philippine time)`);
+            console.log(`⏱️ Time until cleanup: ${Math.floor(timeUntilMidnight / (1000 * 60 * 60))} hours ${Math.floor((timeUntilMidnight % (1000 * 60 * 60)) / (1000 * 60))} minutes`);
+            
+            setTimeout(async () => {
+                await clearOldHistoryData();
+                
+                // Schedule next cleanup (24 hours later)
+                setTimeout(() => {
+                    scheduleDailyCleanup();
+                }, 24 * 60 * 60 * 1000);
+                
+            }, timeUntilMidnight);
+        }
         // History functions
         async function displayHistory() {
             try {
@@ -413,13 +503,21 @@
                 const history = await getStockHistoryFromFirebase(50);
                 
                 if (history.length === 0) {
-                    historyContainer.innerHTML = '<div class="loading">No history available</div>';
+                    historyContainer.innerHTML = '<div class="loading">No history available yet</div>';
                     return;
                 }
 
                 let html = '';
                 history.forEach(entry => {
-                    const date = entry.timestamp.toLocaleString();
+                    const date = entry.timestamp.toLocaleString('en-US', { 
+                        timeZone: 'Asia/Manila',
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit'
+                    });
                     const changeCount = entry.changeCount || 0;
                     
                     html += `
@@ -537,9 +635,12 @@
             const firebaseConnected = await initializeFirebase();
             
             if (firebaseConnected) {
-                console.log('Database connected, starting updates...');
+                console.log('🔥 Firebase connected, starting updates...');
+                
+                // Schedule daily cleanup
+                scheduleDailyCleanup();
             } else {
-                console.log('⚠️ Database not connected, continuing without database features...');
+                console.log('⚠️ Firebase not connected, continuing without database features...');
             }
             
             // Start the main application
