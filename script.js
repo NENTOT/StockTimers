@@ -324,7 +324,6 @@
     return null;
   }
 }
-
         // History functions
         async function displayHistory() {
         try {
@@ -352,19 +351,20 @@
                 let changeText = '';
                 switch (change.type) {
                 case 'added':
-                    // Skip added items since they have no old stock to show
-                    return;
+                    // For added items, show the value that was added
+                    changeText = `${change.emoji} ${change.item} (${change.value})`;
+                    break;
                 case 'removed':
+                    // For removed items, show the value that was removed
                     changeText = `${change.emoji} ${change.item} (${change.value})`;
                     break;
                 case 'changed':
+                    // For changed items, show the old value
                     changeText = `${change.emoji} ${change.item} (${change.oldValue})`;
                     break;
                 }
                 
-                if (changeText) {
                 html += `<div class="change-item">${changeText}</div>`;
-                }
             });
             
             html += `
@@ -379,7 +379,6 @@
             historyContainer.innerHTML = '<div class="error">Error loading history</div>';
         }
         }
-
        async function fetchStockWithComparison() {
         console.log('📦 Fetching stock with comparison...');
         
