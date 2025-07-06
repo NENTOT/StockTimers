@@ -323,47 +323,46 @@
             }
         }
 
-        // Enhanced stock fetch with comparison and Firebase logging
         async function fetchStockWithComparison() {
-            console.log('📦 Fetching stock with comparison...');
+        console.log('📦 Fetching stock with comparison...');
+        
+        const newStockData = await fetchStock();
+        
+        if (newStockData) {
+            const comparison = compareStockData(newStockData, previousStockData);
             
-            const newStockData = await fetchStock();
+            if (comparison.hasChanges) {
+            console.log('✅ Stock changed! New items detected:', comparison.changes.length, 'changes');
+            updateStockStatus(true, `Stock updated - ${comparison.changes.length} changes detected!`);
             
-            if (newStockData) {
-                const comparison = compareStockData(newStockData, previousStockData);
-                
-                if (comparison.hasChanges) {
-                console.log('✅ Stock changed! New items detected:', comparison.changes.length, 'changes');
-                updateStockStatus(true, `Stock updated - ${comparison.changes.length} changes detected!`);
-                
-                // Save changes to Firebase
-                await saveStockChangeToFirebase(comparison.changes);
-                
-                // Always refresh history when changes are detected
-                displayHistory();
-                
-                // Clear any pending auto-refresh
-                if (stockRefreshTimeout) {
-                    clearTimeout(stockRefreshTimeout);
-                    stockRefreshTimeout = null;
-                }
-                } else {
-                console.log('🔄 Stock unchanged, scheduling refresh in 30 seconds...');
-                updateStockStatus(true, 'Stock unchanged - Auto-refresh in 30 seconds');
-                
-                if (stockRefreshTimeout) {
-                    clearTimeout(stockRefreshTimeout);
-                }
-                
-                stockRefreshTimeout = setTimeout(() => {
-                    console.log('🔄 Auto-refreshing stock after 30 seconds...');
-                    fetchStockWithComparison();
-                }, 30000);
-                }
-                
-                // Store a deep copy for comparison
-                previousStockData = JSON.parse(JSON.stringify(newStockData));
+            // Save changes to Firebase
+            await saveStockChangeToFirebase(comparison.changes);
+            
+            // Always refresh history when changes are detected
+            displayHistory();
+            
+            // Clear any pending auto-refresh
+            if (stockRefreshTimeout) {
+                clearTimeout(stockRefreshTimeout);
+                stockRefreshTimeout = null;
             }
+            } else {
+            console.log('🔄 Stock unchanged, scheduling refresh in 30 seconds...');
+            updateStockStatus(true, 'Stock unchanged - Auto-refresh in 30 seconds');
+            
+            if (stockRefreshTimeout) {
+                clearTimeout(stockRefreshTimeout);
+            }
+            
+            stockRefreshTimeout = setTimeout(() => {
+                console.log('🔄 Auto-refreshing stock after 30 seconds...');
+                fetchStockWithComparison();
+            }, 30000);
+            }
+            
+            // Store a deep copy for comparison
+            previousStockData = JSON.parse(JSON.stringify(newStockData));
+        }
         }
 
         function displayStock(stockData) {
