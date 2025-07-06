@@ -352,8 +352,8 @@
                 let changeText = '';
                 switch (change.type) {
                 case 'added':
-                    // Skip added items - they don't have old stock
-                    break;
+                    // Skip added items since they have no old stock to show
+                    return;
                 case 'removed':
                     changeText = `${change.emoji} ${change.item} (${change.value})`;
                     break;
