@@ -651,3 +651,14 @@
         } else {
             initialize();
         }
+
+        // Check if running in background
+        async function checkBackgroundStatus() {
+            try {
+                const response = await fetch('/.netlify/functions/monitor-stock');
+                const data = await response.json();
+                console.log('Background monitoring:', data);
+            } catch (error) {
+                console.error('Background monitoring error:', error);
+            }
+        }
