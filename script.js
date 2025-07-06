@@ -338,8 +338,10 @@
             // Save changes to Firebase
             await saveStockChangeToFirebase(comparison.changes);
             
-            // Always refresh history when changes are detected
-            displayHistory();
+            // Only refresh history if it's currently visible to avoid showing current stock as history
+            if (historyVisible) {
+                displayHistory();
+            }
             
             // Clear any pending auto-refresh
             if (stockRefreshTimeout) {
