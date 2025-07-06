@@ -324,53 +324,52 @@
             return null;
         }
         }
-        // History functions
-        async function displayHistory() {
-        try {
-            historyContainer.innerHTML = '<div class="loading">Loading history...</div>';
+       async function displayHistory() {
+            try {
+                historyContainer.innerHTML = '<div class="loading">Loading history...</div>';
 
-            const history = await getStockHistoryFromFirebase(50);
+                const history = await getStockHistoryFromFirebase(50);
 
-            if (history.length === 0) {
-            historyContainer.innerHTML = '<div class="loading">No history available</div>';
-            return;
+                if (history.length === 0) {
+                historyContainer.innerHTML = '<div class="loading">No history available</div>';
+                return;
+                }
+
+                let html = '';
+                history.forEach(entry => {
+                // Only include 'changed' entries
+                const changedItems = entry.changes.filter(change => change.type === 'changed');
+
+                if (changedItems.length === 0) return; // Skip if no changed items
+
+                const date = entry.timestamp.toLocaleString();
+                const changeCount = changedItems.length;
+
+                html += `
+                    <div class="history-item">
+                    <div class="history-timestamp">${date} (${changeCount} changes)</div>
+                    <div class="history-changes">
+                `;
+
+                changedItems.forEach(change => {
+                    const cleanedItemName = change.item.replace(/^(Changed|Added|Removed):\s*/, '');
+                    const changeText = `${change.emoji} ${cleanedItemName} (${change.oldValue})`;
+                    html += `<div class="change-item">${changeText}</div>`;
+                });
+
+                html += `
+                    </div>
+                    </div>
+                `;
+                });
+
+                historyContainer.innerHTML = html;
+            } catch (error) {
+                console.error('Error displaying history:', error);
+                historyContainer.innerHTML = '<div class="error">Error loading history</div>';
+            }
             }
 
-            let html = '';
-            history.forEach(entry => {
-            // Only include 'changed' entries
-            const changedItems = entry.changes.filter(change => change.type === 'changed');
-
-            if (changedItems.length === 0) return; // Skip if no changed items
-
-            const date = entry.timestamp.toLocaleString();
-            const changeCount = changedItems.length;
-
-            html += `
-                <div class="history-item">
-                <div class="history-timestamp">${date} (${changeCount} changes)</div>
-                <div class="history-changes">
-            `;
-
-            changedItems.forEach(change => {
-                // Remove prefixes like "Changed: ", "Added: ", "Removed: " from item name
-                const cleanedItemName = change.item.replace(/^(Changed|Added|Removed):\s*/, '');
-                const changeText = `${change.emoji} ${cleanedItemName} (${change.oldValue})`;
-                html += `<div class="change-item">${changeText}</div>`;
-            });
-
-            html += `
-                </div>
-                </div>
-            `;
-            });
-
-            historyContainer.innerHTML = html;
-        } catch (error) {
-            console.error('Error displaying history:', error);
-            historyContainer.innerHTML = '<div class="error">Error loading history</div>';
-        }
-        }
 
        async function fetchStockWithComparison() {
         console.log('📦 Fetching stock with comparison...');
