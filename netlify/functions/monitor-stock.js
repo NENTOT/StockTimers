@@ -3,19 +3,23 @@ const admin = require('firebase-admin');
 
 // Initialize Firebase Admin (only once)
 if (!admin.apps.length) {
-    try {
-        admin.initializeApp({
-            credential: admin.credential.cert({
-                projectId: process.env.FIREBASE_PROJECT_ID,
-                privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-                clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-            }),
-            projectId: process.env.FIREBASE_PROJECT_ID,
-        });
-        console.log('✅ Firebase Admin initialized');
-    } catch (error) {
-        console.error('❌ Firebase initialization error:', error);
-    }
+    const serviceAccount = {
+        type: "service_account",
+        project_id: process.env.FIREBASE_PROJECT_ID,
+        private_key_id: process.env.FIREBASE_PRIVATE_KEY_ID,
+        private_key: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+        client_email: process.env.FIREBASE_CLIENT_EMAIL,
+        client_id: process.env.FIREBASE_CLIENT_ID,
+        auth_uri: "https://accounts.google.com/o/oauth2/auth",
+        token_uri: "https://oauth2.googleapis.com/token",
+        auth_provider_x509_cert_url: "https://www.googleapis.com/oauth2/v1/certs",
+        client_x509_cert_url: process.env.FIREBASE_CLIENT_X509_CERT_URL
+    };
+
+    admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+        projectId: process.env.FIREBASE_PROJECT_ID,
+    });
 }
 
 const db = admin.firestore();
@@ -88,15 +92,15 @@ function compareStockData(newData, oldData) {
 }
 
 exports.handler = async (event, context) => {
-    // Add CORS headers for all responses
+    // Set CORS headers
     const headers = {
-        'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Headers': 'Content-Type',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Content-Type': 'application/json'
     };
 
-    // Handle OPTIONS request for CORS
+    // Handle preflight OPTIONS request
     if (event.httpMethod === 'OPTIONS') {
         return {
             statusCode: 200,
@@ -106,17 +110,10 @@ exports.handler = async (event, context) => {
     }
 
     try {
-        console.log('🔍 Starting stock monitoring...');
-        
-        // Check environment variables
-        if (!process.env.FIREBASE_PROJECT_ID || !process.env.FIREBASE_PRIVATE_KEY || !process.env.FIREBASE_CLIENT_EMAIL) {
-            throw new Error('Missing Firebase environment variables');
-        }
+        console.log('🔍 Starting stock monitoring function...');
         
         // Fetch current stock data
-        console.log('📡 Fetching stock data from API...');
         const stockResponse = await fetch(`${API_BASE_URL}/stock/GetStock`);
-        
         if (!stockResponse.ok) {
             throw new Error(`Stock API error: ${stockResponse.status} ${stockResponse.statusText}`);
         }
@@ -125,7 +122,6 @@ exports.handler = async (event, context) => {
         console.log('📦 Fetched new stock data successfully');
         
         // Get the last stock data from Firebase
-        console.log('🔍 Checking previous stock data...');
         const lastStockSnapshot = await db.collection('stock_history')
             .orderBy('timestamp', 'desc')
             .limit(1)
@@ -134,17 +130,13 @@ exports.handler = async (event, context) => {
         let previousStockData = null;
         if (!lastStockSnapshot.empty) {
             previousStockData = lastStockSnapshot.docs[0].data().stockData;
-            console.log('📋 Found previous stock data');
-        } else {
-            console.log('📋 No previous stock data found');
         }
         
         // Compare stock data
         const comparison = compareStockData(newStockData, previousStockData);
         
         // Always save current stock snapshot
-        console.log('💾 Saving stock snapshot...');
-        await db.collection('stock_history').add({
+        const stockDoc = await db.collection('stock_history').add({
             timestamp: admin.firestore.FieldValue.serverTimestamp(),
             stockData: newStockData,
             categories: {
@@ -155,11 +147,10 @@ exports.handler = async (event, context) => {
             }
         });
         
-        let responseMessage = 'Stock data saved';
+        let responseMessage = 'Stock data saved successfully';
         
         // If there are changes, save them separately
         if (comparison.hasChanges) {
-            console.log('📝 Saving stock changes...');
             await db.collection('stock_changes').add({
                 timestamp: admin.firestore.FieldValue.serverTimestamp(),
                 changeType: 'stock_change',
@@ -179,9 +170,15 @@ exports.handler = async (event, context) => {
             body: JSON.stringify({
                 success: true,
                 message: responseMessage,
-                changes: comparison.changes.length,
+                changesDetected: comparison.changes.length,
+                hasChanges: comparison.hasChanges,
                 timestamp: new Date().toISOString(),
-                stockData: newStockData
+                stockItemCount: {
+                    seeds: newStockData.seedsStock?.length || 0,
+                    gear: newStockData.gearStock?.length || 0,
+                    eggs: newStockData.eggStock?.length || 0,
+                    cosmetics: newStockData.cosmeticsStock?.length || 0
+                }
             })
         };
         
@@ -194,8 +191,8 @@ exports.handler = async (event, context) => {
             body: JSON.stringify({
                 success: false,
                 error: error.message,
-                timestamp: new Date().toISOString(),
-                stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+                stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+                timestamp: new Date().toISOString()
             })
         };
     }
