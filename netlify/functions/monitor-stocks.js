@@ -3,14 +3,19 @@ const admin = require('firebase-admin');
 
 // Initialize Firebase Admin (only once)
 if (!admin.apps.length) {
-    admin.initializeApp({
-        credential: admin.credential.cert({
+    try {
+        admin.initializeApp({
+            credential: admin.credential.cert({
+                projectId: process.env.FIREBASE_PROJECT_ID,
+                privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+                clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+            }),
             projectId: process.env.FIREBASE_PROJECT_ID,
-            privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-            clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        }),
-        projectId: process.env.FIREBASE_PROJECT_ID,
-    });
+        });
+        console.log('✅ Firebase Admin initialized');
+    } catch (error) {
+        console.error('❌ Firebase initialization error:', error);
+    }
 }
 
 const db = admin.firestore();
@@ -83,19 +88,44 @@ function compareStockData(newData, oldData) {
 }
 
 exports.handler = async (event, context) => {
+    // Add CORS headers for all responses
+    const headers = {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
+    };
+
+    // Handle OPTIONS request for CORS
+    if (event.httpMethod === 'OPTIONS') {
+        return {
+            statusCode: 200,
+            headers,
+            body: ''
+        };
+    }
+
     try {
         console.log('🔍 Starting stock monitoring...');
         
+        // Check environment variables
+        if (!process.env.FIREBASE_PROJECT_ID || !process.env.FIREBASE_PRIVATE_KEY || !process.env.FIREBASE_CLIENT_EMAIL) {
+            throw new Error('Missing Firebase environment variables');
+        }
+        
         // Fetch current stock data
+        console.log('📡 Fetching stock data from API...');
         const stockResponse = await fetch(`${API_BASE_URL}/stock/GetStock`);
+        
         if (!stockResponse.ok) {
-            throw new Error(`Stock API error: ${stockResponse.status}`);
+            throw new Error(`Stock API error: ${stockResponse.status} ${stockResponse.statusText}`);
         }
         
         const newStockData = await stockResponse.json();
-        console.log('📦 Fetched new stock data');
+        console.log('📦 Fetched new stock data successfully');
         
         // Get the last stock data from Firebase
+        console.log('🔍 Checking previous stock data...');
         const lastStockSnapshot = await db.collection('stock_history')
             .orderBy('timestamp', 'desc')
             .limit(1)
@@ -104,12 +134,16 @@ exports.handler = async (event, context) => {
         let previousStockData = null;
         if (!lastStockSnapshot.empty) {
             previousStockData = lastStockSnapshot.docs[0].data().stockData;
+            console.log('📋 Found previous stock data');
+        } else {
+            console.log('📋 No previous stock data found');
         }
         
         // Compare stock data
         const comparison = compareStockData(newStockData, previousStockData);
         
         // Always save current stock snapshot
+        console.log('💾 Saving stock snapshot...');
         await db.collection('stock_history').add({
             timestamp: admin.firestore.FieldValue.serverTimestamp(),
             stockData: newStockData,
@@ -125,6 +159,7 @@ exports.handler = async (event, context) => {
         
         // If there are changes, save them separately
         if (comparison.hasChanges) {
+            console.log('📝 Saving stock changes...');
             await db.collection('stock_changes').add({
                 timestamp: admin.firestore.FieldValue.serverTimestamp(),
                 changeType: 'stock_change',
@@ -140,15 +175,13 @@ exports.handler = async (event, context) => {
         
         return {
             statusCode: 200,
-            headers: {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*'
-            },
+            headers,
             body: JSON.stringify({
                 success: true,
                 message: responseMessage,
                 changes: comparison.changes.length,
-                timestamp: new Date().toISOString()
+                timestamp: new Date().toISOString(),
+                stockData: newStockData
             })
         };
         
@@ -157,14 +190,12 @@ exports.handler = async (event, context) => {
         
         return {
             statusCode: 500,
-            headers: {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*'
-            },
+            headers,
             body: JSON.stringify({
                 success: false,
                 error: error.message,
-                timestamp: new Date().toISOString()
+                timestamp: new Date().toISOString(),
+                stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
             })
         };
     }
