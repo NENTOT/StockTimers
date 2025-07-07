@@ -546,14 +546,32 @@ function stopUpdates() {
 }
 
 // Page visibility handling
+// Modified page visibility handling for notifications
 document.addEventListener('visibilitychange', function () {
     if (document.hidden) {
-        stopUpdates();
-        if (stockRefreshTimeout) {
-            clearTimeout(stockRefreshTimeout);
-            stockRefreshTimeout = null;
+        // Only stop visual updates, keep stock checking if notifications are enabled
+        if (timerUpdateInterval) {
+            clearInterval(timerUpdateInterval);
+            timerUpdateInterval = null;
+        }
+        
+        // Keep stock checking active if notifications are enabled
+        if (notificationsEnabled && watchedItems.size > 0) {
+            console.log('🔔 Keeping stock monitoring active for notifications');
+            // Continue fetching stock but less frequently to save resources
+            if (stockRefreshTimeout) {
+                clearTimeout(stockRefreshTimeout);
+            }
+            stockRefreshTimeout = setTimeout(fetchStock, 60000); // Check every minute instead
+        } else {
+            // Stop everything if notifications are disabled
+            if (stockRefreshTimeout) {
+                clearTimeout(stockRefreshTimeout);
+                stockRefreshTimeout = null;
+            }
         }
     } else {
+        // Resume full updates when tab becomes visible
         startUpdates();
     }
 });
