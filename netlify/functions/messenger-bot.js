@@ -203,8 +203,8 @@ function formatStockSummary(stockData) {
     const formatItems = (items) => {
         return items.slice(0, 5).map((item, i) => {
             const name = item.name || item.itemName || 'Unknown';
-            const qty = item.quantity || item.stock || '?';
-            return `${i + 1}. ${name} - 📦 Qty: ${qty}`;
+            const qty = item.quantity || item.stock || 0;
+            return `${i + 1}. ${name} - x${qty}`;
         }).join('\n');
     };
 
@@ -213,23 +213,29 @@ function formatStockSummary(stockData) {
     const eggs = formatItems(stockData.eggStock || []);
     const cosmetics = formatItems(stockData.cosmeticsStock || []);
 
-    return `🌱 *Current Stock Summary* 🌱
+    const totalItems =
+        (stockData.seedsStock?.length || 0) +
+        (stockData.gearStock?.length || 0) +
+        (stockData.eggStock?.length || 0) +
+        (stockData.cosmeticsStock?.length || 0);
 
-📊 *Total Items*: ${seeds.length + gear.length + eggs.length + cosmetics.length}
+    return `🌱 Current Stock Summary 🌱
 
-🌱 *Seeds*:
+📊 Total Items: ${totalItems}
+
+🌱 Seeds:
 ${seeds}
 
-⚙️ *Gear*:
+⚙️ Gear:
 ${gear}
 
-🥚 *Eggs*:
+🥚 Eggs:
 ${eggs}
 
-💄 *Cosmetics*:
+💄 Cosmetics:
 ${cosmetics}
 
-🔄 *Last Updated*: ${new Date().toLocaleString()}`;
+🔄 Last Updated: ${new Date().toLocaleString()}`;
 }
 
 
