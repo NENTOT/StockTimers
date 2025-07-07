@@ -196,13 +196,48 @@
             margin-bottom: 10px;
         }
         
-        .change-item {
-            margin: 5px 0;
-            padding: 5px 10px;
-            background: #f8f9fa;
-            border-radius: 4px;
-            border-left: 3px solid #007bff;
-        }
+       .change-item {
+    padding: 4px 8px;
+    margin: 2px 0;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.change-item.change-added {
+    background-color: #d4edda;
+    color: #155724;
+    border-left: 3px solid #28a745;
+}
+
+.change-item.change-changed {
+    background-color: #fff3cd;
+    color: #856404;
+    border-left: 3px solid #ffc107;
+}
+
+.change-item.change-removed {
+    background-color: #f8d7da;
+    color: #721c24;
+    border-left: 3px solid #dc3545;
+}
+
+/* Dark mode variants */
+@media (prefers-color-scheme: dark) {
+    .change-item.change-added {
+        background-color: #1e3a2e;
+        color: #a3cfbb;
+    }
+    
+    .change-item.change-changed {
+        background-color: #3a3420;
+        color: #d4c69a;
+    }
+    
+    .change-item.change-removed {
+        background-color: #3a1e23;
+        color: #d4a3a9;
+    }
+}
         
         .timestamp {
             text-align: center;
