@@ -1,4 +1,4 @@
- // Firebase Configuration - Use environment variables or fallback to defaults
+// Firebase Configuration - Use environment variables or fallback to defaults
         const firebaseConfig = {
             apiKey: window.FIREBASE_API_KEY || "AIzaSyAALOGLNNT9SOG4ypxrLH6ZbPd-bubakYA",
             authDomain: window.FIREBASE_AUTH_DOMAIN || "gagstockdb.firebaseapp.com",
@@ -74,189 +74,72 @@
         };
 
         // Firebase Database Functions
-       async function saveCurrentStockToFirebase(stockData) {
-    if (!db) return;
-    
-    try {
-        // Create a comprehensive current stock record
-        const currentStockRecord = {
-            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-            recordType: 'current_stock',
-            totalItems: {
-                seeds: stockData.seedsStock?.length || 0,
-                gear: stockData.gearStock?.length || 0,
-                eggs: stockData.eggStock?.length || 0,
-                cosmetics: stockData.cosmeticsStock?.length || 0
-            },
-            stockDetails: {
-                seeds: stockData.seedsStock || [],
-                gear: stockData.gearStock || [],
-                eggs: stockData.eggStock || [],
-                cosmetics: stockData.cosmeticsStock || []
-            },
-            // Store all items in a flat array for easier querying
-            allItems: [
-                ...(stockData.seedsStock || []).map(item => ({ ...item, category: 'Seeds', emoji: '🌱' })),
-                ...(stockData.gearStock || []).map(item => ({ ...item, category: 'Gear', emoji: '⚙️' })),
-                ...(stockData.eggStock || []).map(item => ({ ...item, category: 'Eggs', emoji: '🥚' })),
-                ...(stockData.cosmeticsStock || []).map(item => ({ ...item, category: 'Cosmetics', emoji: '💄' }))
-            ]
-        };
-
-        await db.collection('current_stock_history').add(currentStockRecord);
-        console.log('✅ Current stock snapshot saved to Firebase');
-        
-        // Auto-refresh history if visible
-        if (historyVisible) {
-            setTimeout(() => {
-                displayCurrentStockHistory();
-            }, 500); // Small delay to ensure Firebase has processed the write
-        }
-        
-    } catch (error) {
-        console.error('❌ Error saving current stock to Firebase:', error);
-    }
-}
-
-async function displayCurrentStockHistory() {
-    try {
-        historyContainer.innerHTML = '<div class="loading">Loading current stock history...</div>';
-
-        const history = await getCurrentStockHistoryFromFirebase(50);
-
-        if (history.length === 0) {
-            historyContainer.innerHTML = '<div class="loading">No stock history available</div>';
-            return;
-        }
-
-        let html = '';
-        history.forEach((entry, index) => {
-            const date = entry.timestamp.toLocaleString();
-            const totalItemsCount = Object.values(entry.totalItems).reduce((sum, count) => sum + count, 0);
+        async function saveStockToFirebase(stockData) {
+            if (!db) return;
             
-            // Show comparison with previous entry if available
-            let changeIndicator = '';
-            if (index < history.length - 1) {
-                const previousEntry = history[index + 1];
-                const previousTotal = Object.values(previousEntry.totalItems).reduce((sum, count) => sum + count, 0);
-                const difference = totalItemsCount - previousTotal;
-                
-                if (difference > 0) {
-                    changeIndicator = ` <span class="change-indicator positive">+${difference}</span>`;
-                } else if (difference < 0) {
-                    changeIndicator = ` <span class="change-indicator negative">${difference}</span>`;
-                } else {
-                    changeIndicator = ` <span class="change-indicator neutral">±0</span>`;
-                }
+            try {
+                const docData = {
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                    stockData: stockData,
+                    categories: {
+                        seeds: stockData.seedsStock || [],
+                        gear: stockData.gearStock || [],
+                        eggs: stockData.eggStock || [],
+                        cosmetics: stockData.cosmeticsStock || []
+                    }
+                };
+
+                await db.collection('stock_history').add(docData);
+                console.log('✅ Stock data saved to Firebase');
+            } catch (error) {
+                console.error('❌ Error saving to Firebase:', error);
             }
+        }
 
-            html += `
-                <div class="history-item">
-                    <div class="history-timestamp">
-                        ${date} - Total: ${totalItemsCount} items${changeIndicator}
-                    </div>
-                    <div class="stock-summary">
-                        <div class="category-counts">
-                            <span class="category-count">🌱 Seeds: ${entry.totalItems.seeds || 0}</span>
-                            <span class="category-count">⚙️ Gear: ${entry.totalItems.gear || 0}</span>
-                            <span class="category-count">🥚 Eggs: ${entry.totalItems.eggs || 0}</span>
-                            <span class="category-count">💄 Cosmetics: ${entry.totalItems.cosmetics || 0}</span>
-                        </div>
-                    </div>
-                    <div class="stock-details" style="display: none;">
-                        <div class="stock-categories">
-            `;
+        async function saveStockChangeToFirebase(changes) {
+            if (!db || !changes || changes.length === 0) return;
+            
+            try {
+                const docData = {
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                    changeType: 'stock_change',
+                    changes: changes,
+                    changeCount: changes.length
+                };
 
-            // Display each category's items
-            const categories = [
-                { key: 'seeds', name: 'Seeds', emoji: '🌱' },
-                { key: 'gear', name: 'Gear', emoji: '⚙️' },
-                { key: 'eggs', name: 'Eggs', emoji: '🥚' },
-                { key: 'cosmetics', name: 'Cosmetics', emoji: '💄' }
-            ];
+                await db.collection('stock_changes').add(docData);
+                console.log('✅ Stock changes saved to Firebase:', changes.length, 'changes');
+            } catch (error) {
+                console.error('❌ Error saving changes to Firebase:', error);
+            }
+        }
 
-            categories.forEach(category => {
-                const items = entry.stockDetails[category.key] || [];
-                if (items.length > 0) {
-                    html += `
-                        <div class="category-section">
-                            <h4>${category.emoji} ${category.name} (${items.length})</h4>
-                            <div class="items-grid">
-                    `;
-                    
-                    items.forEach(item => {
-                        html += `
-                            <div class="item-card">
-                                <span class="item-name">${item.name}</span>
-                                <span class="item-quantity">${item.value}</span>
-                            </div>
-                        `;
+        async function getStockHistoryFromFirebase(limit = 20) {
+            if (!db) return [];
+            
+            try {
+                const snapshot = await db.collection('stock_changes')
+                    .orderBy('timestamp', 'desc')
+                    .limit(limit)
+                    .get();
+
+                const history = [];
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    history.push({
+                        id: doc.id,
+                        timestamp: data.timestamp?.toDate() || new Date(),
+                        changes: data.changes || [],
+                        changeCount: data.changeCount || 0
                     });
-                    
-                    html += `
-                            </div>
-                        </div>
-                    `;
-                }
-            });
+                });
 
-            html += `
-                        </div>
-                    </div>
-                    <button class="toggle-details" onclick="toggleStockDetails(this)">
-                        Show Details
-                    </button>
-                </div>
-            `;
-        });
-
-        historyContainer.innerHTML = html;
-    } catch (error) {
-        console.error('Error displaying current stock history:', error);
-        historyContainer.innerHTML = '<div class="error">Error loading current stock history</div>';
-    }
-}
-
-function toggleStockDetails(button) {
-    const historyItem = button.closest('.history-item');
-    const stockDetails = historyItem.querySelector('.stock-details');
-    
-    if (stockDetails.style.display === 'none') {
-        stockDetails.style.display = 'block';
-        button.textContent = 'Hide Details';
-    } else {
-        stockDetails.style.display = 'none';
-        button.textContent = 'Show Details';
-    }
-}
-
-async function getCurrentStockHistoryFromFirebase(limit = 50) {
-    if (!db) return [];
-    
-    try {
-        const snapshot = await db.collection('current_stock_history')
-            .orderBy('timestamp', 'desc')
-            .limit(limit)
-            .get();
-
-        const history = [];
-        snapshot.forEach(doc => {
-            const data = doc.data();
-            history.push({
-                id: doc.id,
-                timestamp: data.timestamp?.toDate() || new Date(),
-                totalItems: data.totalItems || {},
-                stockDetails: data.stockDetails || {},
-                allItems: data.allItems || []
-            });
-        });
-
-        return history;
-    } catch (error) {
-        console.error('❌ Error fetching current stock history from Firebase:', error);
-        return [];
-    }
-}
+                return history;
+            } catch (error) {
+                console.error('❌ Error fetching history from Firebase:', error);
+                return [];
+            }
+        }
 
         // Utility functions
         function formatTime(seconds) {
@@ -285,18 +168,18 @@ async function getCurrentStockHistoryFromFirebase(limit = 50) {
 
         // Enhanced stock comparison with detailed change tracking
       function compareStockData(newData, oldData) {
-    if (!oldData) return { hasChanges: false, changes: [], currentStock: newData };
-    
-    try {
-        const changes = [];
-        const categories = [
+        if (!oldData) return { hasChanges: false, changes: [] };
+        
+        try {
+            const changes = [];
+            const categories = [
             { key: 'seedsStock', name: 'Seeds', emoji: '🌱' },
             { key: 'gearStock', name: 'Gear', emoji: '⚙️' },
             { key: 'eggStock', name: 'Eggs', emoji: '🥚' },
             { key: 'cosmeticsStock', name: 'Cosmetics', emoji: '💄' }
-        ];
-        
-        for (const category of categories) {
+            ];
+            
+            for (const category of categories) {
             const newItems = newData[category.key] || [];
             const oldItems = oldData[category.key] || [];
             
@@ -304,56 +187,51 @@ async function getCurrentStockHistoryFromFirebase(limit = 50) {
             const newMap = new Map(newItems.map(item => [item.name, item.value]));
             const oldMap = new Map(oldItems.map(item => [item.name, item.value]));
             
-            // Check for new items (items that are now in stock)
+            // Check for new items
             for (const [name, value] of newMap) {
                 if (!oldMap.has(name)) {
-                    changes.push({
-                        type: 'now_available',
-                        category: category.name,
-                        emoji: category.emoji,
-                        item: name,
-                        currentValue: value,
-                        status: 'in_stock'
-                    });
+                changes.push({
+                    type: 'added',
+                    category: category.name,
+                    emoji: category.emoji,
+                    item: name,
+                    value: value
+                });
                 } else if (oldMap.get(name) !== value) {
-                    changes.push({
-                        type: 'quantity_changed',
-                        category: category.name,
-                        emoji: category.emoji,
-                        item: name,
-                        previousValue: oldMap.get(name),
-                        currentValue: value,
-                        status: 'in_stock'
-                    });
+                changes.push({
+                    type: 'changed',
+                    category: category.name,
+                    emoji: category.emoji,
+                    item: name,
+                    oldValue: oldMap.get(name),
+                    newValue: value
+                });
                 }
             }
             
-            // Check for removed items (items no longer in stock)
+            // Check for removed items
             for (const [name, value] of oldMap) {
                 if (!newMap.has(name)) {
-                    changes.push({
-                        type: 'out_of_stock',
-                        category: category.name,
-                        emoji: category.emoji,
-                        item: name,
-                        previousValue: value,
-                        status: 'out_of_stock'
-                    });
+                changes.push({
+                    type: 'removed',
+                    category: category.name,
+                    emoji: category.emoji,
+                    item: name,
+                    value: value
+                });
                 }
             }
-        }
-        
-        return {
+            }
+            
+            return {
             hasChanges: changes.length > 0,
-            changes: changes,
-            currentStock: newData,
-            timestamp: new Date()
-        };
-    } catch (error) {
-        console.error('Error comparing stock data:', error);
-        return { hasChanges: false, changes: [], currentStock: newData };
-    }
-}
+            changes: changes
+            };
+        } catch (error) {
+            console.error('Error comparing stock data:', error);
+            return { hasChanges: false, changes: [] };
+        }
+        }
 
         // Calculate timers based on known restock intervals
         function calculateTimers() {
@@ -419,46 +297,6 @@ async function getCurrentStockHistoryFromFirebase(limit = 50) {
             });
         }
 
-async function fetchStockWithCurrentRecording() {
-    console.log('📦 Fetching stock with current recording...');
-    
-    const newStockData = await fetchStock();
-    
-    if (newStockData) {
-        // Always save current stock snapshot
-        await saveCurrentStockToFirebase(newStockData);
-        
-        // Compare with previous for change detection (for status updates)
-        const comparison = compareStockData(newStockData, previousStockData);
-        
-        if (comparison.hasChanges) {
-            console.log('✅ Stock changed! New items detected:', comparison.changes.length, 'changes');
-            updateStockStatus(true, `Stock updated - ${comparison.changes.length} changes detected!`);
-            
-            // Clear any pending auto-refresh
-            if (stockRefreshTimeout) {
-                clearTimeout(stockRefreshTimeout);
-                stockRefreshTimeout = null;
-            }
-        } else {
-            console.log('🔄 Stock unchanged, scheduling refresh in 30 seconds...');
-            updateStockStatus(true, 'Stock unchanged - Auto-refresh in 30 seconds');
-            
-            if (stockRefreshTimeout) {
-                clearTimeout(stockRefreshTimeout);
-            }
-            
-            stockRefreshTimeout = setTimeout(() => {
-                console.log('🔄 Auto-refreshing stock after 30 seconds...');
-                fetchStockWithCurrentRecording();
-            }, 30000);
-        }
-        
-        // Store a deep copy for comparison
-        previousStockData = JSON.parse(JSON.stringify(newStockData));
-    }
-}       
-
         // Stock functions
       async function fetchStock() {
         try {
@@ -486,106 +324,67 @@ async function fetchStockWithCurrentRecording() {
             return null;
         }
         }
-     async function displayHistory() {
-    try {
-        historyContainer.innerHTML = '<div class="loading">Loading history...</div>';
+       async function displayHistory() {
+            try {
+                historyContainer.innerHTML = '<div class="loading">Loading history...</div>';
 
-        const history = await getStockHistoryFromFirebase(50);
+                const history = await getStockHistoryFromFirebase(50);
 
-        if (history.length === 0) {
-            historyContainer.innerHTML = '<div class="loading">No history available</div>';
-            return;
-        }
-
-        let html = '';
-        history.forEach(entry => {
-            const allChanges = entry.changes || [];
-
-            if (allChanges.length === 0) return; // Skip if no changes
-
-            const date = entry.timestamp.toLocaleString();
-            const changeCount = allChanges.length;
-            const summary = entry.summary || {};
-
-            html += `
-                <div class="history-item">
-                    <div class="history-timestamp">
-                        ${date} (${changeCount} changes)
-                        <span class="stock-summary">
-                            📊 Total Items: ${summary.totalItems || 0} | 
-                            ✅ In Stock: ${summary.inStockChanges || 0} | 
-                            ❌ Out of Stock: ${summary.outOfStockChanges || 0}
-                        </span>
-                    </div>
-                    <div class="history-changes">
-            `;
-
-            // Group changes by category for better display
-            const changesByCategory = {};
-            allChanges.forEach(change => {
-                if (!changesByCategory[change.category]) {
-                    changesByCategory[change.category] = [];
+                if (history.length === 0) {
+                historyContainer.innerHTML = '<div class="loading">No history available</div>';
+                return;
                 }
-                changesByCategory[change.category].push(change);
-            });
 
-            // Display changes by category
-            Object.entries(changesByCategory).forEach(([category, changes]) => {
-                html += `<div class="category-changes">
-                    <h4>${changes[0].emoji} ${category} (${changes.length} changes)</h4>
+                let html = '';
+                history.forEach(entry => {
+                // Only include 'changed' entries
+                const changedItems = entry.changes.filter(change => change.type === 'changed');
+
+                if (changedItems.length === 0) return; // Skip if no changed items
+
+                const date = entry.timestamp.toLocaleString();
+                const changeCount = changedItems.length;
+
+                html += `
+                    <div class="history-item">
+                    <div class="history-timestamp">${date} (${changeCount} changes)</div>
+                    <div class="history-changes">
                 `;
-                
-                changes.forEach(change => {
+
+                changedItems.forEach(change => {
                     const cleanedItemName = change.item.replace(/^(Changed|Added|Removed):\s*/, '');
-                    let changeText = '';
-                    
-                    switch (change.type) {
-                        case 'now_available':
-                            changeText = `✅ NOW IN STOCK: ${cleanedItemName} (${change.currentValue})`;
-                            break;
-                        case 'quantity_changed':
-                            changeText = `📊 QUANTITY CHANGED: ${cleanedItemName} (${change.previousValue} → ${change.currentValue})`;
-                            break;
-                        case 'out_of_stock':
-                            changeText = `❌ OUT OF STOCK: ${cleanedItemName} (was ${change.previousValue})`;
-                            break;
-                        default:
-                            changeText = `${change.emoji} ${cleanedItemName} (${change.currentValue || change.previousValue})`;
-                    }
-                    
-                    html += `<div class="change-item change-${change.type}">${changeText}</div>`;
+                    const changeText = `${change.emoji} ${cleanedItemName} (${change.oldValue})`;
+                    html += `<div class="change-item">${changeText}</div>`;
                 });
-                
-                html += `</div>`;
-            });
 
-            html += `
+                html += `
                     </div>
-                </div>
-            `;
-        });
+                    </div>
+                `;
+                });
 
-        historyContainer.innerHTML = html;
-    } catch (error) {
-        console.error('Error displaying history:', error);
-        historyContainer.innerHTML = '<div class="error">Error loading history</div>';
-    }
-}
+                historyContainer.innerHTML = html;
+            } catch (error) {
+                console.error('Error displaying history:', error);
+                historyContainer.innerHTML = '<div class="error">Error loading history</div>';
+            }
+            }
 
-      async function fetchStockWithComparison() {
-    console.log('📦 Fetching stock with comparison...');
-    
-    const newStockData = await fetchStock();
-    
-    if (newStockData) {
-        const comparison = compareStockData(newStockData, previousStockData);
+
+       async function fetchStockWithComparison() {
+        console.log('📦 Fetching stock with comparison...');
         
-        if (comparison.hasChanges) {
-            console.log('✅ Stock changed! Changes detected:', comparison.changes.length);
+        const newStockData = await fetchStock();
+        
+        if (newStockData) {
+            const comparison = compareStockData(newStockData, previousStockData);
+            
+            if (comparison.hasChanges) {
+            console.log('✅ Stock changed! New items detected:', comparison.changes.length, 'changes');
             updateStockStatus(true, `Stock updated - ${comparison.changes.length} changes detected!`);
             
-            // Save current stock state with changes to Firebase
-            await saveStockChangeToFirebase(comparison);
+            // Save changes to Firebase BEFORE updating previousStockData
+            await saveStockChangeToFirebase(comparison.changes);
             
             // Only refresh history if it's currently visible
             if (historyVisible) {
@@ -597,7 +396,7 @@ async function fetchStockWithCurrentRecording() {
                 clearTimeout(stockRefreshTimeout);
                 stockRefreshTimeout = null;
             }
-        } else {
+            } else {
             console.log('🔄 Stock unchanged, scheduling refresh in 30 seconds...');
             updateStockStatus(true, 'Stock unchanged - Auto-refresh in 30 seconds');
             
@@ -609,12 +408,12 @@ async function fetchStockWithCurrentRecording() {
                 console.log('🔄 Auto-refreshing stock after 30 seconds...');
                 fetchStockWithComparison();
             }, 30000);
+            }
+            
+            // Store a deep copy for comparison (this should happen AFTER saving changes)
+            previousStockData = JSON.parse(JSON.stringify(newStockData));
         }
-        
-        // Store a deep copy for comparison (this should happen AFTER saving changes)
-        previousStockData = JSON.parse(JSON.stringify(newStockData));
-    }
-}
+        }
 
         function displayStock(stockData) {
             let html = '';
@@ -659,50 +458,57 @@ async function fetchStockWithCurrentRecording() {
         }
 
         // Database cleanup function
- async function clearOldCurrentStockHistory() {
-    if (!db) return;
-    
-    try {
-        console.log('🗑️ Starting daily current stock history cleanup...');
-        
-        // Keep only the last 100 records and clear the rest
-        const snapshot = await db.collection('current_stock_history')
-            .orderBy('timestamp', 'desc')
-            .get();
-        
-        const docs = snapshot.docs;
-        const batch = db.batch();
-        
-        // Delete all but the most recent 100 records
-        if (docs.length > 100) {
-            const docsToDelete = docs.slice(100);
-            docsToDelete.forEach(doc => {
-                batch.delete(doc.ref);
-            });
+        async function clearOldHistoryData() {
+            if (!db) return;
             
-            await batch.commit();
-            console.log(`✅ Cleaned up ${docsToDelete.length} old current stock records`);
+            try {
+                console.log('🗑️ Starting daily database cleanup...');
+                
+                // Clear stock_changes collection
+                const changesSnapshot = await db.collection('stock_changes').get();
+                const changesBatch = db.batch();
+                
+                changesSnapshot.forEach(doc => {
+                    changesBatch.delete(doc.ref);
+                });
+                
+                if (changesSnapshot.size > 0) {
+                    await changesBatch.commit();
+                    console.log(`✅ Cleared ${changesSnapshot.size} documents from stock_changes`);
+                }
+                
+                // Clear stock_history collection
+                const historySnapshot = await db.collection('stock_history').get();
+                const historyBatch = db.batch();
+                
+                historySnapshot.forEach(doc => {
+                    historyBatch.delete(doc.ref);
+                });
+                
+                if (historySnapshot.size > 0) {
+                    await historyBatch.commit();
+                    console.log(`✅ Cleared ${historySnapshot.size} documents from stock_history`);
+                }
+                
+                // Add cleanup log
+                await db.collection('system_logs').add({
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                    action: 'daily_cleanup',
+                    changesCleared: changesSnapshot.size,
+                    historyCleared: historySnapshot.size
+                });
+                
+                console.log('✅ Daily database cleanup completed successfully');
+                
+                // Refresh history display if visible
+                if (historyVisible) {
+                    displayHistory();
+                }
+                
+            } catch (error) {
+                console.error('❌ Error during daily cleanup:', error);
+            }
         }
-        
-        // Add cleanup log
-        await db.collection('system_logs').add({
-            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-            action: 'daily_current_stock_cleanup',
-            recordsCleaned: docs.length > 100 ? docs.length - 100 : 0,
-            recordsKept: Math.min(docs.length, 100)
-        });
-        
-        console.log('✅ Daily current stock history cleanup completed');
-        
-        // Refresh history display if visible
-        if (historyVisible) {
-            displayCurrentStockHistory();
-        }
-        
-    } catch (error) {
-        console.error('❌ Error during current stock history cleanup:', error);
-    }
-}
 
         // Schedule daily cleanup at 12 AM Philippine time
         function scheduleDailyCleanup() {
@@ -736,36 +542,36 @@ async function fetchStockWithCurrentRecording() {
             }, timeUntilMidnight);
         }
 
-function toggleHistory() {
-    historyVisible = !historyVisible;
-    const historyBtn = document.getElementById('historyBtn');
-    
-    if (historyVisible) {
-        historySection.style.display = 'block';
-        historyBtn.textContent = '📊 Hide History';
-        displayCurrentStockHistory();
-    } else {
-        historySection.style.display = 'none';
-        historyBtn.textContent = '📊 Show History';
-    }
-}
+        function toggleHistory() {
+            historyVisible = !historyVisible;
+            const historyBtn = document.getElementById('historyBtn');
+            
+            if (historyVisible) {
+                historySection.style.display = 'block';
+                historyBtn.textContent = '📊 Hide History';
+                displayHistory();
+            } else {
+                historySection.style.display = 'none';
+                historyBtn.textContent = '📊 Show History';
+            }
+        }
 
- function refreshAll() {
-    // Clear any pending auto-refresh
-    if (stockRefreshTimeout) {
-        clearTimeout(stockRefreshTimeout);
-        stockRefreshTimeout = null;
-    }
-    
-    // Calculate timers and fetch stock
-    calculateTimers();
-    fetchStockWithCurrentRecording(); // Use the new function
-    
-    // Refresh history if visible
-    if (historyVisible) {
-        displayCurrentStockHistory();
-    }
-}
+        function refreshAll() {
+            // Clear any pending auto-refresh
+            if (stockRefreshTimeout) {
+                clearTimeout(stockRefreshTimeout);
+                stockRefreshTimeout = null;
+            }
+            
+            // Calculate timers and fetch stock
+            calculateTimers();
+            fetchStock();
+            
+            // Refresh history if visible
+            if (historyVisible) {
+                displayHistory();
+            }
+        }
 
         // Update intervals
         function startUpdates() {

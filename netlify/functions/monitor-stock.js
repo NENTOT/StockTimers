@@ -25,9 +25,9 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 const API_BASE_URL = 'https://grow-a-garden-api-4ses.onrender.com/api';
 
-// Updated compare stock data function - focuses on current stock
+// Compare stock data function
 function compareStockData(newData, oldData) {
-    if (!oldData) return { hasChanges: false, changes: [], currentStock: newData };
+    if (!oldData) return { hasChanges: false, changes: [] };
     
     try {
         const changes = [];
@@ -45,40 +45,37 @@ function compareStockData(newData, oldData) {
             const newMap = new Map(newItems.map(item => [item.name, item.value]));
             const oldMap = new Map(oldItems.map(item => [item.name, item.value]));
             
-            // Check for new items (items that are now in stock)
+            // Check for new items
             for (const [name, value] of newMap) {
                 if (!oldMap.has(name)) {
                     changes.push({
-                        type: 'now_available',
+                        type: 'added',
                         category: category.name,
                         emoji: category.emoji,
                         item: name,
-                        currentValue: value,
-                        status: 'in_stock'
+                        value: value
                     });
                 } else if (oldMap.get(name) !== value) {
                     changes.push({
-                        type: 'quantity_changed',
+                        type: 'changed',
                         category: category.name,
                         emoji: category.emoji,
                         item: name,
-                        previousValue: oldMap.get(name),
-                        currentValue: value,
-                        status: 'in_stock'
+                        oldValue: oldMap.get(name),
+                        newValue: value
                     });
                 }
             }
             
-            // Check for removed items (items no longer in stock)
+            // Check for removed items
             for (const [name, value] of oldMap) {
                 if (!newMap.has(name)) {
                     changes.push({
-                        type: 'out_of_stock',
+                        type: 'removed',
                         category: category.name,
                         emoji: category.emoji,
                         item: name,
-                        previousValue: value,
-                        status: 'out_of_stock'
+                        value: value
                     });
                 }
             }
@@ -86,13 +83,11 @@ function compareStockData(newData, oldData) {
         
         return {
             hasChanges: changes.length > 0,
-            changes: changes,
-            currentStock: newData,
-            timestamp: new Date()
+            changes: changes
         };
     } catch (error) {
         console.error('Error comparing stock data:', error);
-        return { hasChanges: false, changes: [], currentStock: newData };
+        return { hasChanges: false, changes: [] };
     }
 }
 
@@ -126,51 +121,45 @@ exports.handler = async (event, context) => {
         const newStockData = await stockResponse.json();
         console.log('📦 Fetched new stock data successfully');
         
-        // Get the last stock data from Firebase (from new collection)
-        const lastStockSnapshot = await db.collection('stock_updates')
+        // Get the last stock data from Firebase
+        const lastStockSnapshot = await db.collection('stock_history')
             .orderBy('timestamp', 'desc')
             .limit(1)
             .get();
         
         let previousStockData = null;
         if (!lastStockSnapshot.empty) {
-            previousStockData = lastStockSnapshot.docs[0].data().currentStock;
+            previousStockData = lastStockSnapshot.docs[0].data().stockData;
         }
         
         // Compare stock data
         const comparison = compareStockData(newStockData, previousStockData);
         
-        let responseMessage = 'Stock monitored successfully';
+        // Always save current stock snapshot
+        const stockDoc = await db.collection('stock_history').add({
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            stockData: newStockData,
+            categories: {
+                seeds: newStockData.seedsStock || [],
+                gear: newStockData.gearStock || [],
+                eggs: newStockData.eggStock || [],
+                cosmetics: newStockData.cosmeticsStock || []
+            }
+        });
         
-        // If there are changes, save current stock state with changes
+        let responseMessage = 'Stock data saved successfully';
+        
+        // If there are changes, save them separately
         if (comparison.hasChanges) {
-            const docData = {
+            await db.collection('stock_changes').add({
                 timestamp: admin.firestore.FieldValue.serverTimestamp(),
-                changeType: 'stock_update',
+                changeType: 'stock_change',
                 changes: comparison.changes,
-                changeCount: comparison.changes.length,
-                currentStock: comparison.currentStock,
-                categories: {
-                    seeds: comparison.currentStock.seedsStock || [],
-                    gear: comparison.currentStock.gearStock || [],
-                    eggs: comparison.currentStock.eggStock || [],
-                    cosmetics: comparison.currentStock.cosmeticsStock || []
-                },
-                summary: {
-                    totalItems: (comparison.currentStock.seedsStock?.length || 0) + 
-                               (comparison.currentStock.gearStock?.length || 0) + 
-                               (comparison.currentStock.eggStock?.length || 0) + 
-                               (comparison.currentStock.cosmeticsStock?.length || 0),
-                    inStockChanges: comparison.changes.filter(c => c.status === 'in_stock').length,
-                    outOfStockChanges: comparison.changes.filter(c => c.status === 'out_of_stock').length
-                },
-                source: 'netlify_function'
-            };
-            
-            await db.collection('stock_updates').add(docData);
+                changeCount: comparison.changes.length
+            });
             
             responseMessage = `Stock updated - ${comparison.changes.length} changes detected`;
-            console.log('✅ Current stock state saved with changes:', comparison.changes.length);
+            console.log('✅ Stock changes detected and saved:', comparison.changes.length);
         } else {
             console.log('🔄 No stock changes detected');
         }
@@ -184,16 +173,11 @@ exports.handler = async (event, context) => {
                 changesDetected: comparison.changes.length,
                 hasChanges: comparison.hasChanges,
                 timestamp: new Date().toISOString(),
-                approach: 'current_stock_recording',
-                currentStockSummary: {
+                stockItemCount: {
                     seeds: newStockData.seedsStock?.length || 0,
                     gear: newStockData.gearStock?.length || 0,
                     eggs: newStockData.eggStock?.length || 0,
-                    cosmetics: newStockData.cosmeticsStock?.length || 0,
-                    totalItems: (newStockData.seedsStock?.length || 0) + 
-                               (newStockData.gearStock?.length || 0) + 
-                               (newStockData.eggStock?.length || 0) + 
-                               (newStockData.cosmeticsStock?.length || 0)
+                    cosmetics: newStockData.cosmeticsStock?.length || 0
                 }
             })
         };
