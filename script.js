@@ -251,6 +251,7 @@ async function fetchStock() {
     }
 }
 
+// Updated displayHistory function
 async function displayHistory() {
     try {
         historyContainer.innerHTML = '<div class="loading">Loading history...</div>';
@@ -265,23 +266,13 @@ async function displayHistory() {
         let html = '';
         history.forEach(entry => {
             const date = entry.timestamp.toLocaleString();
-            const totalItems = entry.totalItems;
             
             html += `
                 <div class="history-item">
                     <div class="history-timestamp">${date}</div>
-                    <div class="history-stock-summary">
-                        <div class="stock-totals">
-                            <span class="total-item">🌱 Seeds: ${totalItems.seeds}</span>
-                            <span class="total-item">⚙️ Gear: ${totalItems.gear}</span>
-                            <span class="total-item">🥚 Eggs: ${totalItems.eggs}</span>
-                            <span class="total-item">💄 Cosmetics: ${totalItems.cosmetics}</span>
-                        </div>
-                    </div>
-                    <div class="history-details">
             `;
             
-            // Display items from each category
+            // Display items from each category using the stock design
             const categories = [
                 { key: 'seeds', name: 'Seeds', emoji: '🌱' },
                 { key: 'gear', name: 'Gear', emoji: '⚙️' },
@@ -292,22 +283,29 @@ async function displayHistory() {
             categories.forEach(category => {
                 const items = entry.categories[category.key] || [];
                 if (items.length > 0) {
-                    html += `<div class="category-details">
-                        <div class="category-header">${category.emoji} ${category.name} (${items.length})</div>
-                        <div class="category-items">`;
+                    html += `
+                        <div class="history-category">
+                            <h4>${category.emoji} ${category.name} (${items.length} items)</h4>
+                            <div class="history-items">
+                    `;
                     
                     items.forEach(item => {
-                        html += `<div class="item-detail">${item.name} (${item.value})</div>`;
+                        html += `
+                            <div class="history-item-detail">
+                                <span class="history-item-name">${item.name}</span>
+                                <span class="history-item-quantity">${item.value}</span>
+                            </div>
+                        `;
                     });
                     
-                    html += `</div></div>`;
+                    html += `
+                            </div>
+                        </div>
+                    `;
                 }
             });
             
-            html += `
-                    </div>
-                </div>
-            `;
+            html += `</div>`;
         });
 
         historyContainer.innerHTML = html;
