@@ -97,13 +97,29 @@ function createStockSignature(stockData) {
 
 // Helper function to compare stock signatures
 function stockDataChanged(newStockData, oldStockData) {
-    if (!oldStockData) return true;
+    if (!oldStockData) {
+        console.log('📦 No previous stock data, considering as changed');
+        return true;
+    }
     
     const newSignature = createStockSignature(newStockData);
     const oldSignature = createStockSignature(oldStockData);
     
-    return JSON.stringify(newSignature) !== JSON.stringify(oldSignature);
+    const newSigStr = JSON.stringify(newSignature);
+    const oldSigStr = JSON.stringify(oldSignature);
+    
+    const hasChanged = newSigStr !== oldSigStr;
+    
+    if (!hasChanged) {
+        console.log('📦 Detailed comparison:');
+        console.log('📦 New signature length:', newSigStr.length);
+        console.log('📦 Old signature length:', oldSigStr.length);
+        console.log('📦 Signatures match exactly');
+    }
+    
+    return hasChanged;
 }
+
 
 // Firebase Database Functions
 async function saveCurrentStockToFirebase(stockData) {
@@ -287,16 +303,48 @@ async function fetchStock() {
     try {
         stockContainer.innerHTML = '<div class="loading">Loading stock data...</div>';
         
-        const response = await fetch(`${API_BASE_URL}/stock/GetStock`);
+        // Add cache-busting parameter to ensure fresh data
+        const timestamp = Date.now();
+        const response = await fetch(`${API_BASE_URL}/stock/GetStock?_t=${timestamp}`, {
+            method: 'GET',
+            headers: {
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache'
+            }
+        });
+        
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
         const stockData = await response.json();
         
-        // Display the current stock data
+        // Enhanced logging to see what's happening
+        console.log('📦 Raw stock data received:', stockData);
+        console.log('📦 Stock data timestamp:', new Date().toISOString());
+        
+        // Check if data has changed with detailed logging
+        const hasChanged = stockDataChanged(stockData, lastStockData);
+        console.log('📦 Stock data changed:', hasChanged);
+        
+        if (hasChanged) {
+            console.log('📦 New stock signature:', createStockSignature(stockData));
+            console.log('📦 Previous stock signature:', lastStockData ? createStockSignature(lastStockData) : 'null');
+        }
+        
+        // Always display the stock data, even if unchanged
         displayStock(stockData);
         
-        // Save current stock snapshot to Firebase (only if changed)
-        await saveCurrentStockToFirebase(stockData);
+        // Save to Firebase if changed
+        if (hasChanged) {
+            await saveCurrentStockToFirebase(stockData);
+            console.log('✅ Stock data saved to Firebase');
+        } else {
+            console.log('📦 Stock data unchanged, skipping Firebase save');
+        }
+        
+        // Check for new items for notifications
+        if (typeof checkForNewItems === 'function') {
+            checkForNewItems(stockData);
+        }
         
         stockTimestamp.textContent = `Last updated: ${new Date().toLocaleString()}`;
         updateStockStatus(true, `Stock data loaded successfully`);
@@ -308,7 +356,7 @@ async function fetchStock() {
         
         return stockData;
     } catch (error) {
-        console.error('Error fetching stock:', error);
+        console.error('❌ Error fetching stock:', error);
         stockContainer.innerHTML = `<div class="error">Error loading stock data: ${error.message}</div>`;
         updateStockStatus(false, `Error: ${error.message}`);
         return null;
@@ -508,21 +556,64 @@ function toggleHistory() {
     }
 }
 
+async function checkAPIHealth() {
+    try {
+        console.log('🔍 Checking API health...');
+        
+        const response = await fetch(`${API_BASE_URL}/health`, {
+            method: 'GET',
+            headers: {
+                'Cache-Control': 'no-cache'
+            }
+        });
+        
+        if (response.ok) {
+            const health = await response.json();
+            console.log('✅ API Health:', health);
+            return health;
+        } else {
+            console.log('⚠️ API health check failed:', response.status);
+            return null;
+        }
+    } catch (error) {
+        console.error('❌ API health check error:', error);
+        return null;
+    }
+}
+
+// Replace your existing refreshAll function with this one
 function refreshAll() {
+    console.log('🔄 Starting refresh all...');
+    
     // Clear any pending auto-refresh
     if (stockRefreshTimeout) {
         clearTimeout(stockRefreshTimeout);
         stockRefreshTimeout = null;
     }
     
-    // Calculate timers and fetch stock
-    calculateTimers();
-    fetchStock();
+    // Ask user if they want to force refresh if data hasn't changed recently
+    const lastUpdate = stockTimestamp.textContent;
+    const shouldForce = confirm('Do you want to force refresh the stock data? This will bypass the "unchanged" detection.\n\nClick OK for Force Refresh, or Cancel for Regular Refresh.');
+    
+    if (shouldForce) {
+        console.log('🔄 User requested force refresh');
+        forceRefreshStock();
+    } else {
+        console.log('🔄 User requested regular refresh');
+        // Check API health first
+        checkAPIHealth();
+        
+        // Calculate timers and fetch stock
+        calculateTimers();
+        fetchStock();
+    }
     
     // Refresh history if visible
     if (historyVisible) {
         displayHistory();
     }
+    
+    console.log('✅ Refresh all completed');
 }
 
 // Update intervals
@@ -819,3 +910,73 @@ initializeNotificationSystem();
 // Make functions available globally for integration
 window.checkForNewItems = checkForNewItems;
 window.initializeNotificationSystem = initializeNotificationSystem;
+function diagnosticCheck() {
+    console.log('🔍 === DIAGNOSTIC CHECK ===');
+    console.log('🔍 Current time:', new Date().toISOString());
+    console.log('🔍 API Base URL:', API_BASE_URL);
+    console.log('🔍 Firebase connected:', !!db);
+    console.log('🔍 Notifications enabled:', notificationsEnabled);
+    console.log('🔍 Watched items:', [...watchedItems]);
+    console.log('🔍 Timer update interval active:', !!timerUpdateInterval);
+    console.log('🔍 Stock refresh timeout active:', !!stockRefreshTimeout);
+    console.log('🔍 History visible:', historyVisible);
+    console.log('🔍 Last stock data exists:', !!lastStockData);
+    console.log('🔍 Previous stock items count:', previousStockItems.size);
+    console.log('🔍 === END DIAGNOSTIC ===');
+}
+
+// 7. Test the API endpoint directly
+async function testAPIEndpoint() {
+    console.log('🧪 Testing API endpoint...');
+    
+    try {
+        // Test with multiple requests to see if data changes
+        const results = [];
+        
+        for (let i = 0; i < 3; i++) {
+            const timestamp = Date.now();
+            const response = await fetch(`${API_BASE_URL}/stock/GetStock?_t=${timestamp}`);
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            const data = await response.json();
+            results.push({
+                timestamp: new Date().toISOString(),
+                dataSize: JSON.stringify(data).length,
+                seedsCount: data.seedsStock?.length || 0,
+                gearCount: data.gearStock?.length || 0,
+                eggCount: data.eggStock?.length || 0,
+                cosmeticsCount: data.cosmeticsStock?.length || 0
+            });
+            
+            // Wait 1 second between requests
+            await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+        
+        console.log('🧪 API Test Results:', results);
+        
+        // Check if any results differ
+        const signatures = results.map(r => `${r.seedsCount}-${r.gearCount}-${r.eggCount}-${r.cosmeticsCount}`);
+        const uniqueSignatures = new Set(signatures);
+        
+        console.log('🧪 Unique signatures found:', uniqueSignatures.size);
+        console.log('🧪 All signatures:', signatures);
+        
+        if (uniqueSignatures.size === 1) {
+            console.log('⚠️ API is returning identical data - this might be why stock isn\'t updating');
+        } else {
+            console.log('✅ API is returning different data - stock should be updating');
+        }
+        
+    } catch (error) {
+        console.error('❌ API test failed:', error);
+    }
+}
+
+// 8. Make functions available globally for console debugging
+window.forceRefreshStock = forceRefreshStock;
+window.checkAPIHealth = checkAPIHealth;
+window.diagnosticCheck = diagnosticCheck;
+window.testAPIEndpoint = testAPIEndpoint;
