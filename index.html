@@ -37,22 +37,6 @@
         </div>
     </div>
 
-    <div class="controls">
-        <button id="refreshAllBtn" class="btn">🔄 Refresh</button>
-        <button id="historyBtn" class="btn">📊 Show History</button>
-    </div>
-
-    <div class="stock-section">
-        <h2>📦 Current Stock</h2>
-        <div id="stock-container" class="loading">Loading stock data...</div>
-        <div id="stock-timestamp" class="timestamp"></div>
-    </div>
-
-    <div id="history-section" class="history-section" style="display: none;">
-        <h2>📊 Stock History</h2>
-        <div id="history-container"></div>
-    </div>
-
        <div class="notification-section">
         <h2>🔔 Stock Notifications</h2>
         
@@ -243,6 +227,22 @@
             <strong>Watching for:</strong>
             <div id="selectedItemsList"></div>
         </div>
+    </div>
+
+    <div class="controls">
+        <button id="refreshAllBtn" class="btn">🔄 Refresh</button>
+        <button id="historyBtn" class="btn">📊 Show History</button>
+    </div>
+
+    <div class="stock-section">
+        <h2>📦 Current Stock</h2>
+        <div id="stock-container" class="loading">Loading stock data...</div>
+        <div id="stock-timestamp" class="timestamp"></div>
+    </div>
+
+    <div id="history-section" class="history-section" style="display: none;">
+        <h2>📊 Stock History</h2>
+        <div id="history-container"></div>
     </div>
 
   <!-- Firebase SDK -->
