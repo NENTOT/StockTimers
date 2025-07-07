@@ -42,6 +42,7 @@ let timerUpdateInterval;
 let stockRefreshTimeout = null;
 let restockTimes = {};
 let historyVisible = false;
+let lastStockData = null; // Store last stock data for comparison
 
 // Timer elements
 const timerElements = {
@@ -72,11 +73,45 @@ const timerMapping = {
     'cosmeticTimer': 'cosmetic'
 };
 
+// Helper function to create a comparable stock signature
+function createStockSignature(stockData) {
+    const signature = {};
+    
+    // Create signatures for each category
+    const categories = ['seedsStock', 'gearStock', 'eggStock', 'cosmeticsStock'];
+    
+    categories.forEach(category => {
+        const items = stockData[category] || [];
+        signature[category] = items.map(item => ({
+            name: item.name,
+            value: item.value
+        })).sort((a, b) => a.name.localeCompare(b.name));
+    });
+    
+    return signature;
+}
+
+// Helper function to compare stock signatures
+function stockDataChanged(newStockData, oldStockData) {
+    if (!oldStockData) return true;
+    
+    const newSignature = createStockSignature(newStockData);
+    const oldSignature = createStockSignature(oldStockData);
+    
+    return JSON.stringify(newSignature) !== JSON.stringify(oldSignature);
+}
+
 // Firebase Database Functions
 async function saveCurrentStockToFirebase(stockData) {
     if (!db) return;
     
     try {
+        // Only save if stock data has actually changed
+        if (!stockDataChanged(stockData, lastStockData)) {
+            console.log('📦 Stock data unchanged, skipping save to Firebase');
+            return;
+        }
+        
         const docData = {
             timestamp: firebase.firestore.FieldValue.serverTimestamp(),
             stockData: stockData,
@@ -95,7 +130,11 @@ async function saveCurrentStockToFirebase(stockData) {
         };
 
         await db.collection('current_stock').add(docData);
-        console.log('✅ Current stock data saved to Firebase');
+        console.log('✅ Stock changes saved to Firebase');
+        
+        // Update last stock data
+        lastStockData = JSON.parse(JSON.stringify(stockData));
+        
     } catch (error) {
         console.error('❌ Error saving current stock to Firebase:', error);
     }
@@ -126,6 +165,27 @@ async function getStockHistoryFromFirebase(limit = 50) {
     } catch (error) {
         console.error('❌ Error fetching stock history from Firebase:', error);
         return [];
+    }
+}
+
+// Initialize last stock data from Firebase on startup
+async function loadLastStockData() {
+    if (!db) return;
+    
+    try {
+        const snapshot = await db.collection('current_stock')
+            .orderBy('timestamp', 'desc')
+            .limit(1)
+            .get();
+        
+        if (!snapshot.empty) {
+            const doc = snapshot.docs[0];
+            const data = doc.data();
+            lastStockData = data.stockData;
+            console.log('📦 Loaded last stock data from Firebase');
+        }
+    } catch (error) {
+        console.error('❌ Error loading last stock data:', error);
     }
 }
 
@@ -231,7 +291,7 @@ async function fetchStock() {
         // Display the current stock data
         displayStock(stockData);
         
-        // Save current stock snapshot to Firebase
+        // Save current stock snapshot to Firebase (only if changed)
         await saveCurrentStockToFirebase(stockData);
         
         stockTimestamp.textContent = `Last updated: ${new Date().toLocaleString()}`;
@@ -251,7 +311,6 @@ async function fetchStock() {
     }
 }
 
-// Updated displayHistory function
 async function displayHistory() {
     try {
         historyContainer.innerHTML = '<div class="loading">Loading history...</div>';
@@ -511,6 +570,9 @@ async function initialize() {
     
     if (firebaseConnected) {
         console.log('🔥 Firebase connected, starting updates...');
+        
+        // Load last stock data to prevent immediate duplicate
+        await loadLastStockData();
         
         // Schedule daily cleanup
         scheduleDailyCleanup();
