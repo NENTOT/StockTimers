@@ -25,9 +25,48 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 const API_BASE_URL = 'https://grow-a-garden-api-4ses.onrender.com/api';
 
-// Updated compare stock data function - focuses on current stock
+// Function to save current stock to Firebase
+async function saveCurrentStockToFirebase(stockData) {
+    try {
+        // Create a comprehensive current stock record
+        const currentStockRecord = {
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            recordType: 'current_stock',
+            source: 'netlify_function',
+            totalItems: {
+                seeds: stockData.seedsStock?.length || 0,
+                gear: stockData.gearStock?.length || 0,
+                eggs: stockData.eggStock?.length || 0,
+                cosmetics: stockData.cosmeticsStock?.length || 0
+            },
+            stockDetails: {
+                seeds: stockData.seedsStock || [],
+                gear: stockData.gearStock || [],
+                eggs: stockData.eggStock || [],
+                cosmetics: stockData.cosmeticsStock || []
+            },
+            // Store all items in a flat array for easier querying
+            allItems: [
+                ...(stockData.seedsStock || []).map(item => ({ ...item, category: 'Seeds', emoji: '🌱' })),
+                ...(stockData.gearStock || []).map(item => ({ ...item, category: 'Gear', emoji: '⚙️' })),
+                ...(stockData.eggStock || []).map(item => ({ ...item, category: 'Eggs', emoji: '🥚' })),
+                ...(stockData.cosmeticsStock || []).map(item => ({ ...item, category: 'Cosmetics', emoji: '💄' }))
+            ]
+        };
+
+        await db.collection('current_stock_history').add(currentStockRecord);
+        console.log('✅ Current stock snapshot saved to Firebase from Netlify function');
+        
+        return currentStockRecord;
+    } catch (error) {
+        console.error('❌ Error saving current stock to Firebase:', error);
+        throw error;
+    }
+}
+
+// Compare stock data function (unchanged but improved)
 function compareStockData(newData, oldData) {
-    if (!oldData) return { hasChanges: false, changes: [], currentStock: newData };
+    if (!oldData) return { hasChanges: false, changes: [] };
     
     try {
         const changes = [];
@@ -45,40 +84,37 @@ function compareStockData(newData, oldData) {
             const newMap = new Map(newItems.map(item => [item.name, item.value]));
             const oldMap = new Map(oldItems.map(item => [item.name, item.value]));
             
-            // Check for new items (items that are now in stock)
+            // Check for new items
             for (const [name, value] of newMap) {
                 if (!oldMap.has(name)) {
                     changes.push({
-                        type: 'now_available',
+                        type: 'added',
                         category: category.name,
                         emoji: category.emoji,
                         item: name,
-                        currentValue: value,
-                        status: 'in_stock'
+                        value: value
                     });
                 } else if (oldMap.get(name) !== value) {
                     changes.push({
-                        type: 'quantity_changed',
+                        type: 'changed',
                         category: category.name,
                         emoji: category.emoji,
                         item: name,
-                        previousValue: oldMap.get(name),
-                        currentValue: value,
-                        status: 'in_stock'
+                        oldValue: oldMap.get(name),
+                        newValue: value
                     });
                 }
             }
             
-            // Check for removed items (items no longer in stock)
+            // Check for removed items
             for (const [name, value] of oldMap) {
                 if (!newMap.has(name)) {
                     changes.push({
-                        type: 'out_of_stock',
+                        type: 'removed',
                         category: category.name,
                         emoji: category.emoji,
                         item: name,
-                        previousValue: value,
-                        status: 'out_of_stock'
+                        value: value
                     });
                 }
             }
@@ -86,13 +122,11 @@ function compareStockData(newData, oldData) {
         
         return {
             hasChanges: changes.length > 0,
-            changes: changes,
-            currentStock: newData,
-            timestamp: new Date()
+            changes: changes
         };
     } catch (error) {
         console.error('Error comparing stock data:', error);
-        return { hasChanges: false, changes: [], currentStock: newData };
+        return { hasChanges: false, changes: [] };
     }
 }
 
@@ -126,51 +160,55 @@ exports.handler = async (event, context) => {
         const newStockData = await stockResponse.json();
         console.log('📦 Fetched new stock data successfully');
         
-        // Get the last stock data from Firebase (from new collection)
-        const lastStockSnapshot = await db.collection('stock_updates')
+        // Always save current stock snapshot
+        const currentStockRecord = await saveCurrentStockToFirebase(newStockData);
+        
+        // Get the last stock data from the new current_stock_history collection
+        const lastStockSnapshot = await db.collection('current_stock_history')
+            .where('source', '==', 'netlify_function')
             .orderBy('timestamp', 'desc')
-            .limit(1)
+            .limit(2) // Get 2 to compare current with previous
             .get();
         
         let previousStockData = null;
-        if (!lastStockSnapshot.empty) {
-            previousStockData = lastStockSnapshot.docs[0].data().currentStock;
-        }
+        let hasChanges = false;
+        let changeCount = 0;
         
-        // Compare stock data
-        const comparison = compareStockData(newStockData, previousStockData);
-        
-        let responseMessage = 'Stock monitored successfully';
-        
-        // If there are changes, save current stock state with changes
-        if (comparison.hasChanges) {
-            const docData = {
-                timestamp: admin.firestore.FieldValue.serverTimestamp(),
-                changeType: 'stock_update',
-                changes: comparison.changes,
-                changeCount: comparison.changes.length,
-                currentStock: comparison.currentStock,
-                categories: {
-                    seeds: comparison.currentStock.seedsStock || [],
-                    gear: comparison.currentStock.gearStock || [],
-                    eggs: comparison.currentStock.eggStock || [],
-                    cosmetics: comparison.currentStock.cosmeticsStock || []
-                },
-                summary: {
-                    totalItems: (comparison.currentStock.seedsStock?.length || 0) + 
-                               (comparison.currentStock.gearStock?.length || 0) + 
-                               (comparison.currentStock.eggStock?.length || 0) + 
-                               (comparison.currentStock.cosmeticsStock?.length || 0),
-                    inStockChanges: comparison.changes.filter(c => c.status === 'in_stock').length,
-                    outOfStockChanges: comparison.changes.filter(c => c.status === 'out_of_stock').length
-                },
-                source: 'netlify_function'
+        if (lastStockSnapshot.size >= 2) {
+            // Compare with the previous record (second most recent)
+            const docs = lastStockSnapshot.docs;
+            const previousRecord = docs[1].data();
+            
+            // Reconstruct the stock data format for comparison
+            previousStockData = {
+                seedsStock: previousRecord.stockDetails?.seeds || [],
+                gearStock: previousRecord.stockDetails?.gear || [],
+                eggStock: previousRecord.stockDetails?.eggs || [],
+                cosmeticsStock: previousRecord.stockDetails?.cosmetics || []
             };
             
-            await db.collection('stock_updates').add(docData);
+            // Compare stock data
+            const comparison = compareStockData(newStockData, previousStockData);
+            hasChanges = comparison.hasChanges;
+            changeCount = comparison.changes.length;
             
-            responseMessage = `Stock updated - ${comparison.changes.length} changes detected`;
-            console.log('✅ Current stock state saved with changes:', comparison.changes.length);
+            // If there are changes, save them to the old changes collection for backward compatibility
+            if (hasChanges) {
+                await db.collection('stock_changes').add({
+                    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                    changeType: 'stock_change',
+                    changes: comparison.changes,
+                    changeCount: comparison.changes.length,
+                    source: 'netlify_function'
+                });
+            }
+        }
+        
+        let responseMessage = 'Current stock snapshot saved successfully';
+        
+        if (hasChanges) {
+            responseMessage = `Stock updated - ${changeCount} changes detected`;
+            console.log('✅ Stock changes detected and saved:', changeCount);
         } else {
             console.log('🔄 No stock changes detected');
         }
@@ -181,20 +219,16 @@ exports.handler = async (event, context) => {
             body: JSON.stringify({
                 success: true,
                 message: responseMessage,
-                changesDetected: comparison.changes.length,
-                hasChanges: comparison.hasChanges,
+                changesDetected: changeCount,
+                hasChanges: hasChanges,
                 timestamp: new Date().toISOString(),
-                approach: 'current_stock_recording',
-                currentStockSummary: {
+                stockItemCount: {
                     seeds: newStockData.seedsStock?.length || 0,
                     gear: newStockData.gearStock?.length || 0,
                     eggs: newStockData.eggStock?.length || 0,
-                    cosmetics: newStockData.cosmeticsStock?.length || 0,
-                    totalItems: (newStockData.seedsStock?.length || 0) + 
-                               (newStockData.gearStock?.length || 0) + 
-                               (newStockData.eggStock?.length || 0) + 
-                               (newStockData.cosmeticsStock?.length || 0)
-                }
+                    cosmetics: newStockData.cosmeticsStock?.length || 0
+                },
+                totalItems: Object.values(currentStockRecord.totalItems).reduce((sum, count) => sum + count, 0)
             })
         };
         

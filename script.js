@@ -74,66 +74,167 @@
         };
 
         // Firebase Database Functions
-        async function saveStockToFirebase(stockData) {
-            if (!db) return;
-            
-            try {
-                const docData = {
-                    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-                    stockData: stockData,
-                    categories: {
-                        seeds: stockData.seedsStock || [],
-                        gear: stockData.gearStock || [],
-                        eggs: stockData.eggStock || [],
-                        cosmetics: stockData.cosmeticsStock || []
-                    }
-                };
-
-                await db.collection('stock_history').add(docData);
-                console.log('✅ Stock data saved to Firebase');
-            } catch (error) {
-                console.error('❌ Error saving to Firebase:', error);
-            }
-        }
-
-        async function saveStockChangeToFirebase(comparison) {
-    if (!db || !comparison || !comparison.hasChanges) return;
+       async function saveCurrentStockToFirebase(stockData) {
+    if (!db) return;
     
     try {
-        const docData = {
+        // Create a comprehensive current stock record
+        const currentStockRecord = {
             timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-            changeType: 'stock_update',
-            changes: comparison.changes,
-            changeCount: comparison.changes.length,
-            currentStock: comparison.currentStock, // Save current stock state
-            categories: {
-                seeds: comparison.currentStock.seedsStock || [],
-                gear: comparison.currentStock.gearStock || [],
-                eggs: comparison.currentStock.eggStock || [],
-                cosmetics: comparison.currentStock.cosmeticsStock || []
+            recordType: 'current_stock',
+            totalItems: {
+                seeds: stockData.seedsStock?.length || 0,
+                gear: stockData.gearStock?.length || 0,
+                eggs: stockData.eggStock?.length || 0,
+                cosmetics: stockData.cosmeticsStock?.length || 0
             },
-            summary: {
-                totalItems: (comparison.currentStock.seedsStock?.length || 0) + 
-                           (comparison.currentStock.gearStock?.length || 0) + 
-                           (comparison.currentStock.eggStock?.length || 0) + 
-                           (comparison.currentStock.cosmeticsStock?.length || 0),
-                inStockChanges: comparison.changes.filter(c => c.status === 'in_stock').length,
-                outOfStockChanges: comparison.changes.filter(c => c.status === 'out_of_stock').length
-            }
+            stockDetails: {
+                seeds: stockData.seedsStock || [],
+                gear: stockData.gearStock || [],
+                eggs: stockData.eggStock || [],
+                cosmetics: stockData.cosmeticsStock || []
+            },
+            // Store all items in a flat array for easier querying
+            allItems: [
+                ...(stockData.seedsStock || []).map(item => ({ ...item, category: 'Seeds', emoji: '🌱' })),
+                ...(stockData.gearStock || []).map(item => ({ ...item, category: 'Gear', emoji: '⚙️' })),
+                ...(stockData.eggStock || []).map(item => ({ ...item, category: 'Eggs', emoji: '🥚' })),
+                ...(stockData.cosmeticsStock || []).map(item => ({ ...item, category: 'Cosmetics', emoji: '💄' }))
+            ]
         };
 
-        await db.collection('stock_updates').add(docData);
-        console.log('✅ Current stock state saved to Firebase with changes:', comparison.changes.length);
+        await db.collection('current_stock_history').add(currentStockRecord);
+        console.log('✅ Current stock snapshot saved to Firebase');
+        
+        // Auto-refresh history if visible
+        if (historyVisible) {
+            setTimeout(() => {
+                displayCurrentStockHistory();
+            }, 500); // Small delay to ensure Firebase has processed the write
+        }
+        
     } catch (error) {
         console.error('❌ Error saving current stock to Firebase:', error);
     }
 }
 
-        async function getStockHistoryFromFirebase(limit = 20) {
+async function displayCurrentStockHistory() {
+    try {
+        historyContainer.innerHTML = '<div class="loading">Loading current stock history...</div>';
+
+        const history = await getCurrentStockHistoryFromFirebase(50);
+
+        if (history.length === 0) {
+            historyContainer.innerHTML = '<div class="loading">No stock history available</div>';
+            return;
+        }
+
+        let html = '';
+        history.forEach((entry, index) => {
+            const date = entry.timestamp.toLocaleString();
+            const totalItemsCount = Object.values(entry.totalItems).reduce((sum, count) => sum + count, 0);
+            
+            // Show comparison with previous entry if available
+            let changeIndicator = '';
+            if (index < history.length - 1) {
+                const previousEntry = history[index + 1];
+                const previousTotal = Object.values(previousEntry.totalItems).reduce((sum, count) => sum + count, 0);
+                const difference = totalItemsCount - previousTotal;
+                
+                if (difference > 0) {
+                    changeIndicator = ` <span class="change-indicator positive">+${difference}</span>`;
+                } else if (difference < 0) {
+                    changeIndicator = ` <span class="change-indicator negative">${difference}</span>`;
+                } else {
+                    changeIndicator = ` <span class="change-indicator neutral">±0</span>`;
+                }
+            }
+
+            html += `
+                <div class="history-item">
+                    <div class="history-timestamp">
+                        ${date} - Total: ${totalItemsCount} items${changeIndicator}
+                    </div>
+                    <div class="stock-summary">
+                        <div class="category-counts">
+                            <span class="category-count">🌱 Seeds: ${entry.totalItems.seeds || 0}</span>
+                            <span class="category-count">⚙️ Gear: ${entry.totalItems.gear || 0}</span>
+                            <span class="category-count">🥚 Eggs: ${entry.totalItems.eggs || 0}</span>
+                            <span class="category-count">💄 Cosmetics: ${entry.totalItems.cosmetics || 0}</span>
+                        </div>
+                    </div>
+                    <div class="stock-details" style="display: none;">
+                        <div class="stock-categories">
+            `;
+
+            // Display each category's items
+            const categories = [
+                { key: 'seeds', name: 'Seeds', emoji: '🌱' },
+                { key: 'gear', name: 'Gear', emoji: '⚙️' },
+                { key: 'eggs', name: 'Eggs', emoji: '🥚' },
+                { key: 'cosmetics', name: 'Cosmetics', emoji: '💄' }
+            ];
+
+            categories.forEach(category => {
+                const items = entry.stockDetails[category.key] || [];
+                if (items.length > 0) {
+                    html += `
+                        <div class="category-section">
+                            <h4>${category.emoji} ${category.name} (${items.length})</h4>
+                            <div class="items-grid">
+                    `;
+                    
+                    items.forEach(item => {
+                        html += `
+                            <div class="item-card">
+                                <span class="item-name">${item.name}</span>
+                                <span class="item-quantity">${item.value}</span>
+                            </div>
+                        `;
+                    });
+                    
+                    html += `
+                            </div>
+                        </div>
+                    `;
+                }
+            });
+
+            html += `
+                        </div>
+                    </div>
+                    <button class="toggle-details" onclick="toggleStockDetails(this)">
+                        Show Details
+                    </button>
+                </div>
+            `;
+        });
+
+        historyContainer.innerHTML = html;
+    } catch (error) {
+        console.error('Error displaying current stock history:', error);
+        historyContainer.innerHTML = '<div class="error">Error loading current stock history</div>';
+    }
+}
+
+function toggleStockDetails(button) {
+    const historyItem = button.closest('.history-item');
+    const stockDetails = historyItem.querySelector('.stock-details');
+    
+    if (stockDetails.style.display === 'none') {
+        stockDetails.style.display = 'block';
+        button.textContent = 'Hide Details';
+    } else {
+        stockDetails.style.display = 'none';
+        button.textContent = 'Show Details';
+    }
+}
+
+async function getCurrentStockHistoryFromFirebase(limit = 50) {
     if (!db) return [];
     
     try {
-        const snapshot = await db.collection('stock_updates')
+        const snapshot = await db.collection('current_stock_history')
             .orderBy('timestamp', 'desc')
             .limit(limit)
             .get();
@@ -144,16 +245,15 @@
             history.push({
                 id: doc.id,
                 timestamp: data.timestamp?.toDate() || new Date(),
-                changes: data.changes || [],
-                changeCount: data.changeCount || 0,
-                currentStock: data.currentStock || {},
-                summary: data.summary || {}
+                totalItems: data.totalItems || {},
+                stockDetails: data.stockDetails || {},
+                allItems: data.allItems || []
             });
         });
 
         return history;
     } catch (error) {
-        console.error('❌ Error fetching history from Firebase:', error);
+        console.error('❌ Error fetching current stock history from Firebase:', error);
         return [];
     }
 }
@@ -318,6 +418,46 @@
                 }
             });
         }
+
+async function fetchStockWithCurrentRecording() {
+    console.log('📦 Fetching stock with current recording...');
+    
+    const newStockData = await fetchStock();
+    
+    if (newStockData) {
+        // Always save current stock snapshot
+        await saveCurrentStockToFirebase(newStockData);
+        
+        // Compare with previous for change detection (for status updates)
+        const comparison = compareStockData(newStockData, previousStockData);
+        
+        if (comparison.hasChanges) {
+            console.log('✅ Stock changed! New items detected:', comparison.changes.length, 'changes');
+            updateStockStatus(true, `Stock updated - ${comparison.changes.length} changes detected!`);
+            
+            // Clear any pending auto-refresh
+            if (stockRefreshTimeout) {
+                clearTimeout(stockRefreshTimeout);
+                stockRefreshTimeout = null;
+            }
+        } else {
+            console.log('🔄 Stock unchanged, scheduling refresh in 30 seconds...');
+            updateStockStatus(true, 'Stock unchanged - Auto-refresh in 30 seconds');
+            
+            if (stockRefreshTimeout) {
+                clearTimeout(stockRefreshTimeout);
+            }
+            
+            stockRefreshTimeout = setTimeout(() => {
+                console.log('🔄 Auto-refreshing stock after 30 seconds...');
+                fetchStockWithCurrentRecording();
+            }, 30000);
+        }
+        
+        // Store a deep copy for comparison
+        previousStockData = JSON.parse(JSON.stringify(newStockData));
+    }
+}       
 
         // Stock functions
       async function fetchStock() {
@@ -519,62 +659,48 @@
         }
 
         // Database cleanup function
-        async function clearOldHistoryData() {
+ async function clearOldCurrentStockHistory() {
     if (!db) return;
     
     try {
-        console.log('🗑️ Starting daily database cleanup...');
+        console.log('🗑️ Starting daily current stock history cleanup...');
         
-        // Clear stock_updates collection (new collection name)
-        const updatesSnapshot = await db.collection('stock_updates').get();
-        const updatesBatch = db.batch();
+        // Keep only the last 100 records and clear the rest
+        const snapshot = await db.collection('current_stock_history')
+            .orderBy('timestamp', 'desc')
+            .get();
         
-        updatesSnapshot.forEach(doc => {
-            updatesBatch.delete(doc.ref);
-        });
+        const docs = snapshot.docs;
+        const batch = db.batch();
         
-        if (updatesSnapshot.size > 0) {
-            await updatesBatch.commit();
-            console.log(`✅ Cleared ${updatesSnapshot.size} documents from stock_updates`);
-        }
-        
-        // Clear old collections if they still exist
-        const legacyCollections = ['stock_changes', 'stock_history'];
-        for (const collectionName of legacyCollections) {
-            try {
-                const snapshot = await db.collection(collectionName).get();
-                const batch = db.batch();
-                
-                snapshot.forEach(doc => {
-                    batch.delete(doc.ref);
-                });
-                
-                if (snapshot.size > 0) {
-                    await batch.commit();
-                    console.log(`✅ Cleared ${snapshot.size} documents from ${collectionName}`);
-                }
-            } catch (error) {
-                console.log(`ℹ️ Collection ${collectionName} not found or already empty`);
-            }
+        // Delete all but the most recent 100 records
+        if (docs.length > 100) {
+            const docsToDelete = docs.slice(100);
+            docsToDelete.forEach(doc => {
+                batch.delete(doc.ref);
+            });
+            
+            await batch.commit();
+            console.log(`✅ Cleaned up ${docsToDelete.length} old current stock records`);
         }
         
         // Add cleanup log
         await db.collection('system_logs').add({
             timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-            action: 'daily_cleanup',
-            updatesCleared: updatesSnapshot.size,
-            approach: 'current_stock_recording'
+            action: 'daily_current_stock_cleanup',
+            recordsCleaned: docs.length > 100 ? docs.length - 100 : 0,
+            recordsKept: Math.min(docs.length, 100)
         });
         
-        console.log('✅ Daily database cleanup completed successfully');
+        console.log('✅ Daily current stock history cleanup completed');
         
         // Refresh history display if visible
         if (historyVisible) {
-            displayHistory();
+            displayCurrentStockHistory();
         }
         
     } catch (error) {
-        console.error('❌ Error during daily cleanup:', error);
+        console.error('❌ Error during current stock history cleanup:', error);
     }
 }
 
@@ -610,36 +736,36 @@
             }, timeUntilMidnight);
         }
 
-        function toggleHistory() {
-            historyVisible = !historyVisible;
-            const historyBtn = document.getElementById('historyBtn');
-            
-            if (historyVisible) {
-                historySection.style.display = 'block';
-                historyBtn.textContent = '📊 Hide History';
-                displayHistory();
-            } else {
-                historySection.style.display = 'none';
-                historyBtn.textContent = '📊 Show History';
-            }
-        }
+function toggleHistory() {
+    historyVisible = !historyVisible;
+    const historyBtn = document.getElementById('historyBtn');
+    
+    if (historyVisible) {
+        historySection.style.display = 'block';
+        historyBtn.textContent = '📊 Hide History';
+        displayCurrentStockHistory();
+    } else {
+        historySection.style.display = 'none';
+        historyBtn.textContent = '📊 Show History';
+    }
+}
 
-        function refreshAll() {
-            // Clear any pending auto-refresh
-            if (stockRefreshTimeout) {
-                clearTimeout(stockRefreshTimeout);
-                stockRefreshTimeout = null;
-            }
-            
-            // Calculate timers and fetch stock
-            calculateTimers();
-            fetchStock();
-            
-            // Refresh history if visible
-            if (historyVisible) {
-                displayHistory();
-            }
-        }
+ function refreshAll() {
+    // Clear any pending auto-refresh
+    if (stockRefreshTimeout) {
+        clearTimeout(stockRefreshTimeout);
+        stockRefreshTimeout = null;
+    }
+    
+    // Calculate timers and fetch stock
+    calculateTimers();
+    fetchStockWithCurrentRecording(); // Use the new function
+    
+    // Refresh history if visible
+    if (historyVisible) {
+        displayCurrentStockHistory();
+    }
+}
 
         // Update intervals
         function startUpdates() {
