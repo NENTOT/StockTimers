@@ -96,17 +96,54 @@ async function saveStockToFirebase(stockData) {
     }
 }
 
-// Modified function to save current stock snapshot when changes are detected
-async function saveCurrentStockSnapshot(stockData, changes) {
+// Modified function to save CURRENT stock with changes to Firebase
+async function saveCurrentStockWithChanges(currentStockData, changes) {
+    if (!db || !currentStockData) return;
+    
+    try {
+        const docData = {
+            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+            changeType: 'stock_update',
+            changes: changes,
+            changeCount: changes.length,
+            // Save complete CURRENT stock data (what's available now)
+            currentStock: {
+                seeds: currentStockData.seedsStock || [],
+                gear: currentStockData.gearStock || [],
+                eggs: currentStockData.eggStock || [],
+                cosmetics: currentStockData.cosmeticsStock || []
+            },
+            // Summary counts of current stock
+            stockCounts: {
+                seeds: (currentStockData.seedsStock || []).length,
+                gear: (currentStockData.gearStock || []).length,
+                eggs: (currentStockData.eggStock || []).length,
+                cosmetics: (currentStockData.cosmeticsStock || []).length,
+                total: (currentStockData.seedsStock || []).length + 
+                       (currentStockData.gearStock || []).length + 
+                       (currentStockData.eggStock || []).length + 
+                       (currentStockData.cosmeticsStock || []).length
+            }
+        };
+
+        await db.collection('stock_changes').add(docData);
+        console.log('✅ Current stock with changes saved to Firebase:', changes.length, 'changes');
+    } catch (error) {
+        console.error('❌ Error saving current stock with changes to Firebase:', error);
+    }
+}
+
+// Also save periodic snapshots of current stock even without changes
+async function savePeriodicStockSnapshot(stockData) {
     if (!db || !stockData) return;
     
     try {
         const docData = {
             timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-            changeType: 'current_stock_snapshot',
-            changes: changes,
-            changeCount: changes.length,
-            // Save complete current stock data
+            changeType: 'periodic_snapshot',
+            changes: [],
+            changeCount: 0,
+            // Save complete CURRENT stock data
             currentStock: {
                 seeds: stockData.seedsStock || [],
                 gear: stockData.gearStock || [],
@@ -127,9 +164,9 @@ async function saveCurrentStockSnapshot(stockData, changes) {
         };
 
         await db.collection('stock_changes').add(docData);
-        console.log('✅ Current stock snapshot saved to Firebase:', changes.length, 'changes');
+        console.log('✅ Periodic stock snapshot saved to Firebase');
     } catch (error) {
-        console.error('❌ Error saving current stock snapshot to Firebase:', error);
+        console.error('❌ Error saving periodic stock snapshot to Firebase:', error);
     }
 }
 
@@ -148,6 +185,7 @@ async function getStockHistoryFromFirebase(limit = 20) {
             history.push({
                 id: doc.id,
                 timestamp: data.timestamp?.toDate() || new Date(),
+                changeType: data.changeType || 'unknown',
                 changes: data.changes || [],
                 changeCount: data.changeCount || 0,
                 currentStock: data.currentStock || {},
@@ -328,7 +366,7 @@ async function fetchStock() {
 
         const stockData = await response.json();
         
-        // Display the NEW stock data (current stock)
+        // Display the current stock data
         displayStock(stockData);
         
         // Save full stock snapshot to Firebase
@@ -346,7 +384,7 @@ async function fetchStock() {
     }
 }
 
-// Updated displayHistory function to show current stock snapshots
+// Updated displayHistory function to show current stock snapshots properly
 async function displayHistory() {
     try {
         historyContainer.innerHTML = '<div class="loading">Loading history...</div>';
@@ -363,13 +401,19 @@ async function displayHistory() {
             const date = entry.timestamp.toLocaleString();
             const changeCount = entry.changeCount || 0;
             const stockCounts = entry.stockCounts || {};
+            const changeType = entry.changeType || 'unknown';
+            
+            // Different styling for different types
+            const typeClass = changeType === 'stock_update' ? 'stock-update' : 'periodic-snapshot';
+            const typeLabel = changeType === 'stock_update' ? 'Stock Update' : 'Periodic Snapshot';
             
             html += `
-                <div class="history-item">
+                <div class="history-item ${typeClass}">
                     <div class="history-timestamp">
-                        ${date} - ${changeCount} changes detected
+                        <span class="change-type">[${typeLabel}]</span> ${date}
+                        ${changeCount > 0 ? ` - ${changeCount} changes detected` : ''}
                         <span class="stock-summary">
-                            (Total: ${stockCounts.total || 0} items - 
+                            (Current Total: ${stockCounts.total || 0} items - 
                             🌱${stockCounts.seeds || 0} 
                             ⚙️${stockCounts.gear || 0} 
                             🥚${stockCounts.eggs || 0} 
@@ -379,8 +423,8 @@ async function displayHistory() {
                     <div class="history-changes">
             `;
 
-            // Show what changed
-            if (entry.changes && entry.changes.length > 0) {
+            // Show what changed (only for stock updates)
+            if (changeType === 'stock_update' && entry.changes && entry.changes.length > 0) {
                 const changedItems = entry.changes.filter(change => change.type === 'changed');
                 const addedItems = entry.changes.filter(change => change.type === 'added');
                 const removedItems = entry.changes.filter(change => change.type === 'removed');
@@ -410,9 +454,9 @@ async function displayHistory() {
                 }
             }
 
-            // Show current stock at this point in time
+            // Show current stock at this point in time (for all entries)
             if (entry.currentStock) {
-                html += '<div class="current-stock-section"><strong>Current Stock at this time:</strong>';
+                html += '<div class="current-stock-section"><strong>Current Stock Available:</strong>';
                 
                 const categories = [
                     { key: 'seeds', name: 'Seeds', emoji: '🌱' },
@@ -423,17 +467,20 @@ async function displayHistory() {
 
                 categories.forEach(category => {
                     const items = entry.currentStock[category.key] || [];
+                    html += `<div class="stock-category-mini">
+                        <div class="category-header">${category.emoji} ${category.name} (${items.length} items)</div>`;
+                    
                     if (items.length > 0) {
-                        html += `<div class="stock-category-mini">
-                            <div class="category-header">${category.emoji} ${category.name} (${items.length})</div>
-                            <div class="stock-items-mini">`;
-                        
+                        html += `<div class="stock-items-mini">`;
                         items.forEach(item => {
                             html += `<span class="stock-item-mini">${item.name} (${item.value})</span>`;
                         });
-                        
-                        html += `</div></div>`;
+                        html += `</div>`;
+                    } else {
+                        html += `<div class="stock-items-mini"><span class="no-stock">No items available</span></div>`;
                     }
+                    
+                    html += `</div>`;
                 });
                 
                 html += '</div>';
@@ -449,6 +496,9 @@ async function displayHistory() {
     }
 }
 
+// Counter for periodic snapshots
+let periodicSnapshotCounter = 0;
+
 async function fetchStockWithComparison() {
     console.log('📦 Fetching stock with comparison...');
     
@@ -461,13 +511,13 @@ async function fetchStockWithComparison() {
             console.log('✅ Stock changed! New items detected:', comparison.changes.length, 'changes');
             updateStockStatus(true, `Stock updated - ${comparison.changes.length} changes detected!`);
             
-            // Save current stock snapshot with changes to Firebase
-            await saveCurrentStockSnapshot(newStockData, comparison.changes);
+            // Save current stock with changes to Firebase
+            await saveCurrentStockWithChanges(newStockData, comparison.changes);
             
             // Auto-refresh history if it's currently visible
             if (historyVisible) {
                 console.log('📊 Auto-refreshing history...');
-                displayHistory();
+                await displayHistory();
             }
             
             // Clear any pending auto-refresh
@@ -475,9 +525,27 @@ async function fetchStockWithComparison() {
                 clearTimeout(stockRefreshTimeout);
                 stockRefreshTimeout = null;
             }
+            
+            // Reset periodic snapshot counter
+            periodicSnapshotCounter = 0;
         } else {
             console.log('🔄 Stock unchanged, scheduling refresh in 30 seconds...');
             updateStockStatus(true, 'Stock unchanged - Auto-refresh in 30 seconds');
+            
+            // Save periodic snapshot every 10 fetches (5 minutes with 30-second intervals)
+            periodicSnapshotCounter++;
+            if (periodicSnapshotCounter >= 10) {
+                console.log('📸 Saving periodic stock snapshot...');
+                await savePeriodicStockSnapshot(newStockData);
+                
+                // Auto-refresh history if it's currently visible
+                if (historyVisible) {
+                    console.log('📊 Auto-refreshing history after periodic snapshot...');
+                    await displayHistory();
+                }
+                
+                periodicSnapshotCounter = 0;
+            }
             
             if (stockRefreshTimeout) {
                 clearTimeout(stockRefreshTimeout);
@@ -581,7 +649,7 @@ async function clearOldHistoryData() {
         
         // Refresh history display if visible
         if (historyVisible) {
-            displayHistory();
+            await displayHistory();
         }
         
     } catch (error) {
@@ -641,6 +709,9 @@ function refreshAll() {
         clearTimeout(stockRefreshTimeout);
         stockRefreshTimeout = null;
     }
+    
+    // Reset periodic snapshot counter
+    periodicSnapshotCounter = 0;
     
     // Calculate timers and fetch stock
     calculateTimers();
