@@ -200,25 +200,38 @@ function getCategoryData(stockData, category) {
 }
 
 function formatStockSummary(stockData) {
-    const seedsCount = stockData.seedsStock?.length || 0;
-    const gearCount = stockData.gearStock?.length || 0;
-    const eggsCount = stockData.eggStock?.length || 0;
-    const cosmeticsCount = stockData.cosmeticsStock?.length || 0;
-    const totalItems = seedsCount + gearCount + eggsCount + cosmeticsCount;
-    
-    return `🌱 **Current Stock Summary** 🌱
+    const formatItems = (items) => {
+        return items.slice(0, 5).map((item, i) => {
+            const name = item.name || item.itemName || 'Unknown';
+            const qty = item.quantity || item.stock || '?';
+            return `${i + 1}. ${name} - 📦 Qty: ${qty}`;
+        }).join('\n');
+    };
 
-📊 **Total Items**: ${totalItems}
+    const seeds = formatItems(stockData.seedsStock || []);
+    const gear = formatItems(stockData.gearStock || []);
+    const eggs = formatItems(stockData.eggStock || []);
+    const cosmetics = formatItems(stockData.cosmeticsStock || []);
 
-🌱 **Seeds**: ${seedsCount} items
-⚙️ **Gear**: ${gearCount} items
-🥚 **Eggs**: ${eggsCount} items
-💄 **Cosmetics**: ${cosmeticsCount} items
+    return `🌱 *Current Stock Summary* 🌱
 
-💡 **Tip**: Type 'seeds', 'gear', 'eggs', or 'cosmetics' to see specific items in each category.
+📊 *Total Items*: ${seeds.length + gear.length + eggs.length + cosmetics.length}
 
-🔄 **Last Updated**: ${new Date().toLocaleString()}`;
+🌱 *Seeds*:
+${seeds}
+
+⚙️ *Gear*:
+${gear}
+
+🥚 *Eggs*:
+${eggs}
+
+💄 *Cosmetics*:
+${cosmetics}
+
+🔄 *Last Updated*: ${new Date().toLocaleString()}`;
 }
+
 
 function formatCategoryStock(category, items) {
     const categoryEmoji = {
