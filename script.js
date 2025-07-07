@@ -11,6 +11,10 @@ const firebaseConfig = {
 // Initialize Firebase
 let db = null;
 let firebaseApp = null;
+ let notificationsEnabled = false;
+let watchedItems = new Set();
+let previousStockItems = new Set();
+
 
 async function initializeFirebase() {
     try {
@@ -613,3 +617,187 @@ async function checkBackgroundStatus() {
         console.error('Background monitoring error:', error);
     }
 }
+
+ function initializeNotificationSystem() {
+// Load saved preferences
+const savedNotifications = localStorage.getItem('notificationsEnabled');
+const savedWatchedItems = localStorage.getItem('watchedItems');
+
+if (savedNotifications) {
+    notificationsEnabled = JSON.parse(savedNotifications);
+    document.getElementById('notificationToggle').checked = notificationsEnabled;
+}
+
+if (savedWatchedItems) {
+    watchedItems = new Set(JSON.parse(savedWatchedItems));
+    updateSelectedItemsDisplay();
+    updateCheckboxes();
+}
+
+// Request notification permission
+if ('Notification' in window && notificationsEnabled) {
+    Notification.requestPermission();
+}
+}
+
+// Event listeners for notification system
+document.getElementById('notificationToggle').addEventListener('change', function(e) {
+notificationsEnabled = e.target.checked;
+localStorage.setItem('notificationsEnabled', JSON.stringify(notificationsEnabled));
+
+if (notificationsEnabled && 'Notification' in window) {
+    Notification.requestPermission().then(permission => {
+        if (permission === 'granted') {
+            showNotificationAlert('Notifications enabled! You\'ll be alerted when watched items restock.', 'success');
+        } else {
+            showNotificationAlert('Please allow notifications in your browser settings.', 'warning');
+        }
+    });
+} else if (!notificationsEnabled) {
+    showNotificationAlert('Notifications disabled.', 'warning');
+}
+});
+
+// Dropdown functionality
+document.getElementById('itemSelector').addEventListener('click', function(e) {
+e.stopPropagation();
+const dropdown = document.getElementById('dropdownContent');
+dropdown.classList.toggle('show');
+});
+
+// Close dropdown when clicking outside
+document.addEventListener('click', function(e) {
+const dropdown = document.getElementById('dropdownContent');
+if (!e.target.closest('.notification-dropdown')) {
+    dropdown.classList.remove('show');
+}
+});
+
+// Handle checkbox changes
+document.getElementById('dropdownContent').addEventListener('change', function(e) {
+if (e.target.type === 'checkbox') {
+    const itemName = e.target.value;
+    const category = e.target.dataset.category;
+    
+    if (e.target.checked) {
+        watchedItems.add(itemName);
+    } else {
+        watchedItems.delete(itemName);
+    }
+    
+    updateSelectedItemsDisplay();
+    localStorage.setItem('watchedItems', JSON.stringify([...watchedItems]));
+}
+});
+
+// Update selected items display
+function updateSelectedItemsDisplay() {
+const container = document.getElementById('selectedItemsList');
+
+if (watchedItems.size === 0) {
+    container.innerHTML = '<span style="color: #666;">No items selected</span>';
+    return;
+}
+
+container.innerHTML = '';
+watchedItems.forEach(item => {
+    const itemElement = document.createElement('span');
+    itemElement.className = 'selected-item';
+    itemElement.innerHTML = `
+        ${item}
+        <button class="remove-btn" onclick="removeWatchedItem('${item}')">×</button>
+    `;
+    container.appendChild(itemElement);
+});
+}
+
+// Update checkboxes based on watched items
+function updateCheckboxes() {
+const checkboxes = document.querySelectorAll('#dropdownContent input[type="checkbox"]');
+checkboxes.forEach(checkbox => {
+    checkbox.checked = watchedItems.has(checkbox.value);
+});
+}
+
+// Remove watched item
+function removeWatchedItem(itemName) {
+watchedItems.delete(itemName);
+updateSelectedItemsDisplay();
+updateCheckboxes();
+localStorage.setItem('watchedItems', JSON.stringify([...watchedItems]));
+}
+
+// Check for new stock items
+function checkForNewItems(stockData) {
+if (!notificationsEnabled || watchedItems.size === 0) return;
+
+const currentStockItems = new Set();
+
+// Extract all current stock items
+const categories = ['seedsStock', 'gearStock', 'eggStock', 'cosmeticsStock'];
+categories.forEach(category => {
+    const items = stockData[category] || [];
+    items.forEach(item => {
+        currentStockItems.add(item.name);
+    });
+});
+
+// Check for newly appeared watched items
+const newItems = [];
+watchedItems.forEach(watchedItem => {
+    if (currentStockItems.has(watchedItem) && !previousStockItems.has(watchedItem)) {
+        newItems.push(watchedItem);
+    }
+});
+
+// Send notifications for new items
+if (newItems.length > 0) {
+    const message = newItems.length === 1 
+        ? `${newItems[0]} is now in stock!`
+        : `${newItems.length} watched items are now in stock: ${newItems.join(', ')}`;
+    
+    showNotification('🔔 Stock Alert', message);
+    showNotificationAlert(message, 'success');
+}
+
+// Update previous stock items
+previousStockItems = currentStockItems;
+}
+
+// Show browser notification
+function showNotification(title, message) {
+if ('Notification' in window && Notification.permission === 'granted') {
+    new Notification(title, {
+        body: message,
+        icon: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEyIDJDMTMuMSAyIDE0IDIuOSAxNCA0VjVDMTcuMyA2LjcgMTkgMTAuMSAxOSAxNFYxOUwyMSAyMVYyMkg5SDE5VjIxTDE5IDE5VjE0QzE5IDEwLjEgMTcuMyA2LjcgMTQgNVY0QzE0IDIuOSAxMy4xIDIgMTIgMloiIGZpbGw9IiMwMDdiZmYiLz4KPC9zdmc+'
+    });
+}
+}
+
+// Show in-page notification alert
+function showNotificationAlert(message, type = 'success') {
+const alert = document.createElement('div');
+alert.className = `notification-alert ${type}`;
+alert.innerHTML = `
+    ${message}
+    <button class="close-btn" onclick="this.parentElement.remove()">×</button>
+`;
+
+document.body.appendChild(alert);
+
+// Auto-remove after 5 seconds
+setTimeout(() => {
+    if (alert.parentElement) {
+        alert.remove();
+    }
+}, 5000);
+}
+
+// Initialize notification system when page loads
+document.addEventListener('DOMContentLoaded', function() {
+initializeNotificationSystem();
+});
+
+// Make functions available globally for integration
+window.checkForNewItems = checkForNewItems;
+window.initializeNotificationSystem = initializeNotificationSystem;
