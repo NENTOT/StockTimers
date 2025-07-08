@@ -11,9 +11,10 @@ const firebaseConfig = {
 // Initialize Firebase
 let db = null;
 let firebaseApp = null;
-let notificationsEnabled = false;
+ let notificationsEnabled = false;
 let watchedItems = new Set();
 let previousStockItems = new Set();
+
 
 async function initializeFirebase() {
     try {
@@ -39,15 +40,13 @@ async function initializeFirebase() {
 // API Configuration
 const API_BASE_URL = 'https://grow-a-garden-api-4ses.onrender.com/api';
 const UPDATE_INTERVAL = 1000; // 1 second for timers
-const AUTO_REFRESH_DELAY = 30000; // 30 seconds for auto-refresh when no changes
 
 // State management
 let timerUpdateInterval;
 let stockRefreshTimeout = null;
-let autoRefreshTimeout = null;
 let restockTimes = {};
 let historyVisible = false;
-let lastTimerExpired = {}; // Track which timers have expired
+let lastStockData = null; // Store last stock data for comparison
 
 // Timer elements
 const timerElements = {
@@ -78,11 +77,45 @@ const timerMapping = {
     'cosmeticTimer': 'cosmetic'
 };
 
-// Firebase Database Functions - Always save successful fetches
+// Helper function to create a comparable stock signature
+function createStockSignature(stockData) {
+    const signature = {};
+    
+    // Create signatures for each category
+    const categories = ['seedsStock', 'gearStock', 'eggStock', 'cosmeticsStock'];
+    
+    categories.forEach(category => {
+        const items = stockData[category] || [];
+        signature[category] = items.map(item => ({
+            name: item.name,
+            value: item.value
+        })).sort((a, b) => a.name.localeCompare(b.name));
+    });
+    
+    return signature;
+}
+
+// Helper function to compare stock signatures
+function stockDataChanged(newStockData, oldStockData) {
+    if (!oldStockData) return true;
+    
+    const newSignature = createStockSignature(newStockData);
+    const oldSignature = createStockSignature(oldStockData);
+    
+    return JSON.stringify(newSignature) !== JSON.stringify(oldSignature);
+}
+
+// Firebase Database Functions
 async function saveCurrentStockToFirebase(stockData) {
     if (!db) return;
     
     try {
+        // Ensure we have valid stock data before saving
+        if (!stockData || typeof stockData !== 'object') {
+            console.log('📦 Invalid stock data, skipping Firebase save');
+            return;
+        }
+        
         const docData = {
             timestamp: firebase.firestore.FieldValue.serverTimestamp(),
             stockData: stockData,
@@ -101,7 +134,10 @@ async function saveCurrentStockToFirebase(stockData) {
         };
 
         await db.collection('current_stock').add(docData);
-        console.log('✅ Stock data saved to Firebase');
+        console.log('✅ Stock changes saved to Firebase');
+        
+        // Update last stock data after successful save
+        lastStockData = JSON.parse(JSON.stringify(stockData));
         
     } catch (error) {
         console.error('❌ Error saving current stock to Firebase:', error);
@@ -133,6 +169,27 @@ async function getStockHistoryFromFirebase(limit = 50) {
     } catch (error) {
         console.error('❌ Error fetching stock history from Firebase:', error);
         return [];
+    }
+}
+
+// Initialize last stock data from Firebase on startup
+async function loadLastStockData() {
+    if (!db) return;
+    
+    try {
+        const snapshot = await db.collection('current_stock')
+            .orderBy('timestamp', 'desc')
+            .limit(1)
+            .get();
+        
+        if (!snapshot.empty) {
+            const doc = snapshot.docs[0];
+            const data = doc.data();
+            lastStockData = data.stockData;
+            console.log('📦 Loaded last stock data from Firebase');
+        }
+    } catch (error) {
+        console.error('❌ Error loading last stock data:', error);
     }
 }
 
@@ -196,7 +253,7 @@ function calculateTimers() {
     }
 }
 
-// Update timer display with improved expiration handling
+// Update timer display
 function updateTimerDisplay() {
     const now = Date.now();
     
@@ -213,30 +270,26 @@ function updateTimerDisplay() {
             element.className = isExpired ? 'timer-time expired' : 'timer-time';
             container.className = isExpired ? 'timer expired' : 'timer';
 
-            // Check if timer just expired (transition from not expired to expired)
-            const wasExpired = lastTimerExpired[apiKey] || false;
-            
-            if (isExpired && !wasExpired) {
-                console.log(`⏰ ${apiKey} timer expired, triggering stock refresh...`);
-                lastTimerExpired[apiKey] = true;
+            // Auto-refresh stock when timer expires (only once per expiration)
+            if (isExpired && element.dataset.expired !== 'true') {
+                element.dataset.expired = 'true';
+                console.log(`⏰ ${apiKey} timer expired, fetching fresh stock data...`);
                 
-                // Clear any pending auto-refresh
-                if (autoRefreshTimeout) {
-                    clearTimeout(autoRefreshTimeout);
-                    autoRefreshTimeout = null;
+                // Clear any pending auto-refresh timeout before fetching
+                if (stockRefreshTimeout) {
+                    clearTimeout(stockRefreshTimeout);
+                    stockRefreshTimeout = null;
                 }
                 
-                // Immediate fetch when timer expires
                 fetchStock();
-            } else if (!isExpired && wasExpired) {
-                // Timer reset, mark as not expired
-                lastTimerExpired[apiKey] = false;
+            } else if (!isExpired) {
+                element.dataset.expired = 'false';
             }
         }
     });
 }
 
-// Stock functions with automatic refresh logic
+// Stock functions
 async function fetchStock() {
     try {
         stockContainer.innerHTML = '<div class="loading">Loading stock data...</div>';
@@ -249,29 +302,43 @@ async function fetchStock() {
         // Display the current stock data
         displayStock(stockData);
         
-        // Always save successful stock fetches to Firebase
-        await saveCurrentStockToFirebase(stockData);
+        // Check if stock data has actually changed
+        const hasChanges = stockDataChanged(stockData, lastStockData);
         
-        // Check for new items for notifications
-        if (window.checkForNewItems) {
-            window.checkForNewItems(stockData);
+        if (hasChanges) {
+            // Save current stock snapshot to Firebase only if there are changes
+            await saveCurrentStockToFirebase(stockData);
+            
+            // Clear any pending auto-refresh timeout since we have new data
+            if (stockRefreshTimeout) {
+                clearTimeout(stockRefreshTimeout);
+                stockRefreshTimeout = null;
+            }
+            
+            // Check for new items for notifications
+            if (typeof checkForNewItems === 'function') {
+                checkForNewItems(stockData);
+            }
+            
+            console.log('📦 Stock data updated with changes');
+        } else {
+            console.log('📦 No stock changes detected');
+            
+            // Only start auto-refresh timer if no changes and not already running
+            if (!stockRefreshTimeout) {
+                console.log('⏱️ Starting 30-second auto-refresh timer due to no changes');
+                stockRefreshTimeout = setTimeout(() => {
+                    console.log('🔄 Auto-refresh triggered after 30 seconds of no changes');
+                    fetchStock();
+                }, 30000); // 30 seconds
+            }
         }
         
         stockTimestamp.textContent = `Last updated: ${new Date().toLocaleString()}`;
-        updateStockStatus(true, `Stock data loaded successfully`);
+        updateStockStatus(true, hasChanges ? 'Stock data updated' : 'Stock data unchanged');
         
-        // Set up auto-refresh after 30 seconds
-        if (autoRefreshTimeout) {
-            clearTimeout(autoRefreshTimeout);
-        }
-        
-        autoRefreshTimeout = setTimeout(() => {
-            console.log('🔄 Auto-refreshing stock data...');
-            fetchStock();
-        }, AUTO_REFRESH_DELAY);
-        
-        // Refresh history if visible
-        if (historyVisible) {
+        // Refresh history if visible and there were changes
+        if (historyVisible && hasChanges) {
             displayHistory();
         }
         
@@ -281,14 +348,11 @@ async function fetchStock() {
         stockContainer.innerHTML = `<div class="error">Error loading stock data: ${error.message}</div>`;
         updateStockStatus(false, `Error: ${error.message}`);
         
-        // Retry after 10 seconds on error
-        if (autoRefreshTimeout) {
-            clearTimeout(autoRefreshTimeout);
+        // Clear any pending auto-refresh timeout on error
+        if (stockRefreshTimeout) {
+            clearTimeout(stockRefreshTimeout);
+            stockRefreshTimeout = null;
         }
-        autoRefreshTimeout = setTimeout(() => {
-            console.log('🔄 Retrying stock fetch after error...');
-            fetchStock();
-        }, 10000);
         
         return null;
     }
@@ -488,19 +552,21 @@ function toggleHistory() {
 }
 
 function refreshAll() {
-    // Clear any pending timeouts
+    console.log('🔄 Manual refresh initiated');
+    
+    // Clear any pending auto-refresh
     if (stockRefreshTimeout) {
         clearTimeout(stockRefreshTimeout);
         stockRefreshTimeout = null;
     }
     
-    if (autoRefreshTimeout) {
-        clearTimeout(autoRefreshTimeout);
-        autoRefreshTimeout = null;
-    }
-    
-    // Reset timer expiration tracking
-    lastTimerExpired = {};
+    // Reset timer expiration flags
+    Object.keys(timerElements).forEach(elementKey => {
+        const element = timerElements[elementKey];
+        if (element) {
+            element.dataset.expired = 'false';
+        }
+    });
     
     // Calculate timers and fetch stock
     calculateTimers();
@@ -530,14 +596,10 @@ function stopUpdates() {
         clearInterval(timerUpdateInterval);
         timerUpdateInterval = null;
     }
-    
-    if (autoRefreshTimeout) {
-        clearTimeout(autoRefreshTimeout);
-        autoRefreshTimeout = null;
-    }
 }
 
 // Page visibility handling
+// Modified page visibility handling for notifications
 document.addEventListener('visibilitychange', function () {
     if (document.hidden) {
         // Only stop visual updates, keep stock checking if notifications are enabled
@@ -559,10 +621,6 @@ document.addEventListener('visibilitychange', function () {
             if (stockRefreshTimeout) {
                 clearTimeout(stockRefreshTimeout);
                 stockRefreshTimeout = null;
-            }
-            if (autoRefreshTimeout) {
-                clearTimeout(autoRefreshTimeout);
-                autoRefreshTimeout = null;
             }
         }
     } else {
@@ -586,7 +644,10 @@ async function initialize() {
     const firebaseConnected = await initializeFirebase();
     
     if (firebaseConnected) {
-        console.log('🔥 Firebase connected, starting updates...');
+        console.log('🔥 Firebase connected, loading previous stock data...');
+        
+        // Load last stock data to prevent immediate duplicate saves
+        await loadLastStockData();
         
         // Schedule daily cleanup
         scheduleDailyCleanup();
@@ -628,184 +689,184 @@ async function checkBackgroundStatus() {
     }
 }
 
-function initializeNotificationSystem() {
-    // Load saved preferences
-    const savedNotifications = localStorage.getItem('notificationsEnabled');
-    const savedWatchedItems = localStorage.getItem('watchedItems');
+ function initializeNotificationSystem() {
+// Load saved preferences
+const savedNotifications = localStorage.getItem('notificationsEnabled');
+const savedWatchedItems = localStorage.getItem('watchedItems');
 
-    if (savedNotifications) {
-        notificationsEnabled = JSON.parse(savedNotifications);
-        document.getElementById('notificationToggle').checked = notificationsEnabled;
-    }
+if (savedNotifications) {
+    notificationsEnabled = JSON.parse(savedNotifications);
+    document.getElementById('notificationToggle').checked = notificationsEnabled;
+}
 
-    if (savedWatchedItems) {
-        watchedItems = new Set(JSON.parse(savedWatchedItems));
-        updateSelectedItemsDisplay();
-        updateCheckboxes();
-    }
+if (savedWatchedItems) {
+    watchedItems = new Set(JSON.parse(savedWatchedItems));
+    updateSelectedItemsDisplay();
+    updateCheckboxes();
+}
 
-    // Request notification permission
-    if ('Notification' in window && notificationsEnabled) {
-        Notification.requestPermission();
-    }
+// Request notification permission
+if ('Notification' in window && notificationsEnabled) {
+    Notification.requestPermission();
+}
 }
 
 // Event listeners for notification system
 document.getElementById('notificationToggle').addEventListener('change', function(e) {
-    notificationsEnabled = e.target.checked;
-    localStorage.setItem('notificationsEnabled', JSON.stringify(notificationsEnabled));
+notificationsEnabled = e.target.checked;
+localStorage.setItem('notificationsEnabled', JSON.stringify(notificationsEnabled));
 
-    if (notificationsEnabled && 'Notification' in window) {
-        Notification.requestPermission().then(permission => {
-            if (permission === 'granted') {
-                showNotificationAlert('Notifications enabled! You\'ll be alerted when watched items restock.', 'success');
-            } else {
-                showNotificationAlert('Please allow notifications in your browser settings.', 'warning');
-            }
-        });
-    } else if (!notificationsEnabled) {
-        showNotificationAlert('Notifications disabled.', 'warning');
-    }
+if (notificationsEnabled && 'Notification' in window) {
+    Notification.requestPermission().then(permission => {
+        if (permission === 'granted') {
+            showNotificationAlert('Notifications enabled! You\'ll be alerted when watched items restock.', 'success');
+        } else {
+            showNotificationAlert('Please allow notifications in your browser settings.', 'warning');
+        }
+    });
+} else if (!notificationsEnabled) {
+    showNotificationAlert('Notifications disabled.', 'warning');
+}
 });
 
 // Dropdown functionality
 document.getElementById('itemSelector').addEventListener('click', function(e) {
-    e.stopPropagation();
-    const dropdown = document.getElementById('dropdownContent');
-    dropdown.classList.toggle('show');
+e.stopPropagation();
+const dropdown = document.getElementById('dropdownContent');
+dropdown.classList.toggle('show');
 });
 
 // Close dropdown when clicking outside
 document.addEventListener('click', function(e) {
-    const dropdown = document.getElementById('dropdownContent');
-    if (!e.target.closest('.notification-dropdown')) {
-        dropdown.classList.remove('show');
-    }
+const dropdown = document.getElementById('dropdownContent');
+if (!e.target.closest('.notification-dropdown')) {
+    dropdown.classList.remove('show');
+}
 });
 
 // Handle checkbox changes
 document.getElementById('dropdownContent').addEventListener('change', function(e) {
-    if (e.target.type === 'checkbox') {
-        const itemName = e.target.value;
-        const category = e.target.dataset.category;
-        
-        if (e.target.checked) {
-            watchedItems.add(itemName);
-        } else {
-            watchedItems.delete(itemName);
-        }
-        
-        updateSelectedItemsDisplay();
-        localStorage.setItem('watchedItems', JSON.stringify([...watchedItems]));
+if (e.target.type === 'checkbox') {
+    const itemName = e.target.value;
+    const category = e.target.dataset.category;
+    
+    if (e.target.checked) {
+        watchedItems.add(itemName);
+    } else {
+        watchedItems.delete(itemName);
     }
+    
+    updateSelectedItemsDisplay();
+    localStorage.setItem('watchedItems', JSON.stringify([...watchedItems]));
+}
 });
 
 // Update selected items display
 function updateSelectedItemsDisplay() {
-    const container = document.getElementById('selectedItemsList');
+const container = document.getElementById('selectedItemsList');
 
-    if (watchedItems.size === 0) {
-        container.innerHTML = '<span style="color: #666;">No items selected</span>';
-        return;
-    }
+if (watchedItems.size === 0) {
+    container.innerHTML = '<span style="color: #666;">No items selected</span>';
+    return;
+}
 
-    container.innerHTML = '';
-    watchedItems.forEach(item => {
-        const itemElement = document.createElement('span');
-        itemElement.className = 'selected-item';
-        itemElement.innerHTML = `
-            ${item}
-            <button class="remove-btn" onclick="removeWatchedItem('${item}')">×</button>
-        `;
-        container.appendChild(itemElement);
-    });
+container.innerHTML = '';
+watchedItems.forEach(item => {
+    const itemElement = document.createElement('span');
+    itemElement.className = 'selected-item';
+    itemElement.innerHTML = `
+        ${item}
+        <button class="remove-btn" onclick="removeWatchedItem('${item}')">×</button>
+    `;
+    container.appendChild(itemElement);
+});
 }
 
 // Update checkboxes based on watched items
 function updateCheckboxes() {
-    const checkboxes = document.querySelectorAll('#dropdownContent input[type="checkbox"]');
-    checkboxes.forEach(checkbox => {
-        checkbox.checked = watchedItems.has(checkbox.value);
-    });
+const checkboxes = document.querySelectorAll('#dropdownContent input[type="checkbox"]');
+checkboxes.forEach(checkbox => {
+    checkbox.checked = watchedItems.has(checkbox.value);
+});
 }
 
 // Remove watched item
 function removeWatchedItem(itemName) {
-    watchedItems.delete(itemName);
-    updateSelectedItemsDisplay();
-    updateCheckboxes();
-    localStorage.setItem('watchedItems', JSON.stringify([...watchedItems]));
+watchedItems.delete(itemName);
+updateSelectedItemsDisplay();
+updateCheckboxes();
+localStorage.setItem('watchedItems', JSON.stringify([...watchedItems]));
 }
 
 // Check for new stock items
 function checkForNewItems(stockData) {
-    if (!notificationsEnabled || watchedItems.size === 0) return;
+if (!notificationsEnabled || watchedItems.size === 0) return;
 
-    const currentStockItems = new Set();
+const currentStockItems = new Set();
 
-    // Extract all current stock items
-    const categories = ['seedsStock', 'gearStock', 'eggStock', 'cosmeticsStock'];
-    categories.forEach(category => {
-        const items = stockData[category] || [];
-        items.forEach(item => {
-            currentStockItems.add(item.name);
-        });
+// Extract all current stock items
+const categories = ['seedsStock', 'gearStock', 'eggStock', 'cosmeticsStock'];
+categories.forEach(category => {
+    const items = stockData[category] || [];
+    items.forEach(item => {
+        currentStockItems.add(item.name);
     });
+});
 
-    // Check for newly appeared watched items
-    const newItems = [];
-    watchedItems.forEach(watchedItem => {
-        if (currentStockItems.has(watchedItem) && !previousStockItems.has(watchedItem)) {
-            newItems.push(watchedItem);
-        }
-    });
-
-    // Send notifications for new items
-    if (newItems.length > 0) {
-        const message = newItems.length === 1 
-            ? `${newItems[0]} is now in stock!`
-            : `${newItems.length} watched items are now in stock: ${newItems.join(', ')}`;
-        
-        showNotification('🔔 Stock Alert', message);
-        showNotificationAlert(message, 'success');
+// Check for newly appeared watched items
+const newItems = [];
+watchedItems.forEach(watchedItem => {
+    if (currentStockItems.has(watchedItem) && !previousStockItems.has(watchedItem)) {
+        newItems.push(watchedItem);
     }
+});
 
-    // Update previous stock items
-    previousStockItems = currentStockItems;
+// Send notifications for new items
+if (newItems.length > 0) {
+    const message = newItems.length === 1 
+        ? `${newItems[0]} is now in stock!`
+        : `${newItems.length} watched items are now in stock: ${newItems.join(', ')}`;
+    
+    showNotification('🔔 Stock Alert', message);
+    showNotificationAlert(message, 'success');
+}
+
+// Update previous stock items
+previousStockItems = currentStockItems;
 }
 
 // Show browser notification
 function showNotification(title, message) {
-    if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification(title, {
-            body: message,
-            icon: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEyIDJDMTMuMSAyIDE0IDIuOSAxNCA0VjVDMTcuMyA2LjcgMTkgMTAuMSAxOSAxNFYxOUwyMSAyMVYyMkg5SDE5VjIxTDE5IDE5VjE0QzE5IDEwLjEgMTcuMyA2LjcgMTQgNVY0QzE0IDIuOSAxMy4xIDIgMTIgMloiIGZpbGw9IiMwMDdiZmYiLz4KPC9zdmc+'
-        });
-    }
+if ('Notification' in window && Notification.permission === 'granted') {
+    new Notification(title, {
+        body: message,
+        icon: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEyIDJDMTMuMSAyIDE0IDIuOSAxNCA0VjVDMTcuMyA2LjcgMTkgMTAuMSAxOSAxNFYxOUwyMSAyMVYyMkg5SDE5VjIxTDE5IDE5VjE0QzE5IDEwLjEgMTcuMyA2LjcgMTQgNVY0QzE0IDIuOSAxMy4xIDIgMTIgMloiIGZpbGw9IiMwMDdiZmYiLz4KPC9zdmc+'
+    });
+}
 }
 
 // Show in-page notification alert
 function showNotificationAlert(message, type = 'success') {
-    const alert = document.createElement('div');
-    alert.className = `notification-alert ${type}`;
-    alert.innerHTML = `
-        ${message}
-        <button class="close-btn" onclick="this.parentElement.remove()">×</button>
-    `;
+const alert = document.createElement('div');
+alert.className = `notification-alert ${type}`;
+alert.innerHTML = `
+    ${message}
+    <button class="close-btn" onclick="this.parentElement.remove()">×</button>
+`;
 
-    document.body.appendChild(alert);
+document.body.appendChild(alert);
 
-    // Auto-remove after 5 seconds
-    setTimeout(() => {
-        if (alert.parentElement) {
-            alert.remove();
-        }
-    }, 5000);
+// Auto-remove after 5 seconds
+setTimeout(() => {
+    if (alert.parentElement) {
+        alert.remove();
+    }
+}, 5000);
 }
 
 // Initialize notification system when page loads
 document.addEventListener('DOMContentLoaded', function() {
-    initializeNotificationSystem();
+initializeNotificationSystem();
 });
 
 // Make functions available globally for integration
