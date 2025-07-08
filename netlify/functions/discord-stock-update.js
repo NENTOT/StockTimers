@@ -13,7 +13,7 @@ exports.handler = async (event) => {
 
     const discordWebhookUrl = process.env.DISCORD_WEBHOOK_URL;
 
-    const content = `📢 @everyone\n📦 Stock updated!\n\n${changes.map(change => {
+    const content = `<1392202672186069075>📦 Stock updated!\n\n${changes.map(change => {
       return `${change.emoji || ''} **${change.category}** → ${change.item} ${
         change.type === 'changed'
           ? `(${change.oldValue} → ${change.newValue})`
