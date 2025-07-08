@@ -74,7 +74,7 @@
         };
 
         // Firebase Database Functions
-        async function saveStockToFirebase(stockData) {
+       /* async function saveStockToFirebase(stockData) {
             if (!db) return;
             
             try {
@@ -94,7 +94,7 @@
             } catch (error) {
                 console.error('❌ Error saving to Firebase:', error);
             }
-        }
+        }*/
 
         async function saveStockChangeToFirebase(changes) {
             if (!db || !changes || changes.length === 0) return;
