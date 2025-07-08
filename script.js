@@ -294,10 +294,57 @@ async function fetchStock() {
     try {
         stockContainer.innerHTML = '<div class="loading">Loading stock data...</div>';
         
-        const response = await fetch(`${API_BASE_URL}/stock/GetStock`);
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        console.log('🔍 Fetching stock from:', `${API_BASE_URL}/stock/GetStock`);
+        
+        // Add timeout and better error handling
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+        
+        const response = await fetch(`${API_BASE_URL}/stock/GetStock`, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+            },
+            signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        console.log('📡 Response status:', response.status);
+        console.log('📡 Response headers:', Object.fromEntries(response.headers.entries()));
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('❌ API Error Response:', errorText);
+            
+            // Try next endpoint if current one fails
+            if (currentApiIndex < API_ENDPOINTS.length - 1) {
+                console.log('🔄 Trying next API endpoint...');
+                tryNextApiEndpoint();
+                return fetchStock(); // Retry with new endpoint
+            }
+            
+            throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
+        }
 
-        const stockData = await response.json();
+        const responseText = await response.text();
+        console.log('📡 Raw response:', responseText.substring(0, 200) + '...');
+        
+        let stockData;
+        try {
+            stockData = JSON.parse(responseText);
+        } catch (parseError) {
+            console.error('❌ JSON Parse Error:', parseError);
+            throw new Error('Invalid JSON response from API');
+        }
+        
+        console.log('📦 Parsed stock data:', stockData);
+        
+        // Validate stock data structure
+        if (!stockData || typeof stockData !== 'object') {
+            throw new Error('Invalid stock data structure received');
+        }
         
         // Display the current stock data
         displayStock(stockData);
@@ -344,15 +391,42 @@ async function fetchStock() {
         
         return stockData;
     } catch (error) {
-        console.error('Error fetching stock:', error);
-        stockContainer.innerHTML = `<div class="error">Error loading stock data: ${error.message}</div>`;
-        updateStockStatus(false, `Error: ${error.message}`);
+        console.error('❌ Error fetching stock:', error);
+        
+        // More detailed error handling
+        let errorMessage = 'Error loading stock data';
+        if (error.name === 'AbortError') {
+            errorMessage = 'Request timeout - API is taking too long to respond';
+        } else if (error.message.includes('fetch')) {
+            errorMessage = 'Network error - Unable to connect to API';
+        } else if (error.message.includes('JSON')) {
+            errorMessage = 'Invalid response format from API';
+        } else {
+            errorMessage = error.message;
+        }
+        
+        stockContainer.innerHTML = `<div class="error">
+            <strong>Error:</strong> ${errorMessage}<br>
+            <small>API: ${API_BASE_URL}/stock/GetStock</small><br>
+            <small>Time: ${new Date().toLocaleString()}</small><br>
+            <button onclick="testApiConnection().then(result => { if(result.success) fetchStock(); })">Test API Connection</button>
+        </div>`;
+        
+        updateStockStatus(false, `Error: ${errorMessage}`);
         
         // Clear any pending auto-refresh timeout on error
         if (stockRefreshTimeout) {
             clearTimeout(stockRefreshTimeout);
             stockRefreshTimeout = null;
         }
+        
+        // Retry after error with exponential backoff
+        const retryDelay = Math.min(60000, 5000 * Math.pow(2, 0)); // Start with 5 seconds
+        console.log(`🔄 Retrying in ${retryDelay/1000} seconds...`);
+        stockRefreshTimeout = setTimeout(() => {
+            console.log('🔄 Retry attempt after error');
+            fetchStock();
+        }, retryDelay);
         
         return null;
     }
@@ -655,8 +729,25 @@ async function initialize() {
         console.log('⚠️ Firebase not connected, continuing without database features...');
     }
     
-    // Start the main application
-    startUpdates();
+    // Test API connection before starting
+    console.log('🔍 Testing API connection...');
+    const apiTest = await testApiConnection();
+    
+    if (apiTest.success) {
+        console.log(`✅ API connection successful with endpoint: ${apiTest.endpoint}`);
+        // Start the main application
+        startUpdates();
+    } else {
+        console.log('❌ All API endpoints failed during initialization');
+        updateStockStatus(false, 'All API endpoints are unavailable');
+        stockContainer.innerHTML = `
+            <div class="error">
+                <strong>API Connection Failed</strong><br>
+                All API endpoints are currently unavailable.<br>
+                <button onclick="initialize()">Retry Connection</button>
+            </div>
+        `;
+    }
     
     // Set up manual refresh button
     const refreshBtn = document.getElementById('refreshAllBtn');
@@ -669,13 +760,9 @@ async function initialize() {
     if (historyBtn) {
         historyBtn.addEventListener('click', toggleHistory);
     }
-}
-
-// Start when page is ready
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initialize);
-} else {
-    initialize();
+    
+    // Make testApiConnection available globally
+    window.testApiConnection = testApiConnection;
 }
 
 // Check if running in background
@@ -872,3 +959,43 @@ initializeNotificationSystem();
 // Make functions available globally for integration
 window.checkForNewItems = checkForNewItems;
 window.initializeNotificationSystem = initializeNotificationSystem;
+
+async function testApiConnection() {
+    console.log('🔍 Testing API connection...');
+    
+    for (let i = 0; i < API_ENDPOINTS.length; i++) {
+        const endpoint = API_ENDPOINTS[i];
+        console.log(`🔍 Testing endpoint: ${endpoint}`);
+        
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 5000);
+            
+            const response = await fetch(`${endpoint}/stock/GetStock`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                },
+                signal: controller.signal
+            });
+            
+            clearTimeout(timeoutId);
+            
+            if (response.ok) {
+                const data = await response.json();
+                console.log(`✅ Endpoint ${endpoint} is working!`);
+                currentApiIndex = i;
+                API_BASE_URL = endpoint;
+                return { success: true, endpoint, data };
+            } else {
+                console.log(`❌ Endpoint ${endpoint} returned status: ${response.status}`);
+            }
+        } catch (error) {
+            console.log(`❌ Endpoint ${endpoint} failed: ${error.message}`);
+        }
+    }
+    
+    console.log('❌ All API endpoints failed');
+    return { success: false, endpoint: null, data: null };
+}
