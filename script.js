@@ -11,11 +11,9 @@ const firebaseConfig = {
 // Initialize Firebase
 let db = null;
 let firebaseApp = null;
- let notificationsEnabled = false;
+let notificationsEnabled = false;
 let watchedItems = new Set();
 let previousStockItems = new Set();
-let autoRefreshTimer = null;
-let stockChangedRecently = false;
 
 async function initializeFirebase() {
     try {
@@ -41,13 +39,15 @@ async function initializeFirebase() {
 // API Configuration
 const API_BASE_URL = 'https://grow-a-garden-api-4ses.onrender.com/api';
 const UPDATE_INTERVAL = 1000; // 1 second for timers
+const RETRY_DELAY = 30000; // 30 seconds for auto-retry
 
 // State management
 let timerUpdateInterval;
 let stockRefreshTimeout = null;
+let autoRetryTimeout = null;
 let restockTimes = {};
 let historyVisible = false;
-let lastStockData = null; // Store last stock data for comparison
+let expiredTimers = new Set(); // Track which timers have expired
 
 // Timer elements
 const timerElements = {
@@ -78,82 +78,11 @@ const timerMapping = {
     'cosmeticTimer': 'cosmetic'
 };
 
-// Helper function to create a comparable stock signature
-function createStockSignature(stockData) {
-    const signature = {};
-    
-    // Create signatures for each category
-    const categories = ['seedsStock', 'gearStock', 'eggStock', 'cosmeticsStock'];
-    
-    categories.forEach(category => {
-        const items = stockData[category] || [];
-        signature[category] = items.map(item => ({
-            name: item.name,
-            value: item.value
-        })).sort((a, b) => a.name.localeCompare(b.name));
-    });
-    
-    return signature;
-}
-
-// Helper function to compare stock signatures
-function stockDataChanged(newStockData, oldStockData) {
-    if (!oldStockData) {
-        console.log('📦 No previous stock data, considering as changed');
-        return true;
-    }
-    
-    const newSignature = createStockSignature(newStockData);
-    const oldSignature = createStockSignature(oldStockData);
-    
-    const newSigStr = JSON.stringify(newSignature);
-    const oldSigStr = JSON.stringify(oldSignature);
-    
-    const hasChanged = newSigStr !== oldSigStr;
-    
-    if (!hasChanged) {
-        console.log('📦 Detailed comparison:');
-        console.log('📦 New signature length:', newSigStr.length);
-        console.log('📦 Old signature length:', oldSigStr.length);
-        console.log('📦 Signatures match exactly');
-    }
-    
-    return hasChanged;
-}
-
-
-// Firebase Database Functions
-async function saveCurrentStockToFirebase(stockData, forceUpdate = false) {
+// Firebase Database Functions - Always save successful stock fetches
+async function saveCurrentStockToFirebase(stockData) {
     if (!db) return;
     
     try {
-        const hasChanged = stockDataChanged(stockData, lastStockData);
-        
-        // Only save if stock data has actually changed OR if it's a forced update
-        if (!hasChanged && !forceUpdate) {
-            console.log('📦 Stock data unchanged, skipping save to Firebase');
-            return;
-        }
-        
-        // If stock changed, set the flag and start auto-refresh timer
-        if (hasChanged) {
-            stockChangedRecently = true;
-            
-            // Clear any existing auto-refresh timer
-            if (autoRefreshTimer) {
-                clearTimeout(autoRefreshTimer);
-            }
-            
-            // Set 30-second auto-refresh timer
-            autoRefreshTimer = setTimeout(() => {
-                console.log('⏰ Auto-refreshing stock after 30 seconds due to changes');
-                fetchStock();
-                stockChangedRecently = false;
-            }, 30000);
-            
-            console.log('🔄 Stock changed - auto-refresh scheduled in 30 seconds');
-        }
-        
         const docData = {
             timestamp: firebase.firestore.FieldValue.serverTimestamp(),
             stockData: stockData,
@@ -172,10 +101,7 @@ async function saveCurrentStockToFirebase(stockData, forceUpdate = false) {
         };
 
         await db.collection('current_stock').add(docData);
-        console.log('✅ Stock changes saved to Firebase');
-        
-        // Update last stock data
-        lastStockData = JSON.parse(JSON.stringify(stockData));
+        console.log('✅ Stock data saved to Firebase');
         
     } catch (error) {
         console.error('❌ Error saving current stock to Firebase:', error);
@@ -207,27 +133,6 @@ async function getStockHistoryFromFirebase(limit = 50) {
     } catch (error) {
         console.error('❌ Error fetching stock history from Firebase:', error);
         return [];
-    }
-}
-
-// Initialize last stock data from Firebase on startup
-async function loadLastStockData() {
-    if (!db) return;
-    
-    try {
-        const snapshot = await db.collection('current_stock')
-            .orderBy('timestamp', 'desc')
-            .limit(1)
-            .get();
-        
-        if (!snapshot.empty) {
-            const doc = snapshot.docs[0];
-            const data = doc.data();
-            lastStockData = data.stockData;
-            console.log('📦 Loaded last stock data from Firebase');
-        }
-    } catch (error) {
-        console.error('❌ Error loading last stock data:', error);
     }
 }
 
@@ -291,7 +196,7 @@ function calculateTimers() {
     }
 }
 
-// Update timer display
+// Update timer display and handle expiration
 function updateTimerDisplay() {
     const now = Date.now();
     
@@ -303,26 +208,40 @@ function updateTimerDisplay() {
             const timerData = restockTimes[apiKey];
             const remaining = Math.max(0, Math.floor((timerData.restockTime - now) / 1000));
             const isExpired = remaining <= 0;
+            const timerKey = `${apiKey}_timer`;
 
             element.textContent = isExpired ? 'Restocked!' : formatTime(remaining);
             element.className = isExpired ? 'timer-time expired' : 'timer-time';
             container.className = isExpired ? 'timer expired' : 'timer';
 
-            // Auto-refresh stock when timer expires
-            if (isExpired && element.dataset.expired !== 'true') {
-                element.dataset.expired = 'true';
-                console.log(`⏰ ${apiKey} expired, refreshing stock...`);
-                fetchStock();
-            } else if (!isExpired) {
-                element.dataset.expired = '';
+            // Handle timer expiration - only trigger once per expiration
+            if (isExpired && !expiredTimers.has(timerKey)) {
+                expiredTimers.add(timerKey);
+                console.log(`⏰ ${apiKey} timer expired, fetching stock...`);
+                
+                // Fetch stock immediately when timer expires
+                fetchStock().then(() => {
+                    console.log(`✅ Stock fetched for expired ${apiKey} timer`);
+                }).catch(error => {
+                    console.error(`❌ Failed to fetch stock for expired ${apiKey} timer:`, error);
+                });
+            } else if (!isExpired && expiredTimers.has(timerKey)) {
+                // Timer has reset, remove from expired set
+                expiredTimers.delete(timerKey);
             }
         }
     });
 }
 
-// Stock functions
-async function fetchStock(forceUpdate = false) {
+// Stock functions with auto-retry mechanism
+async function fetchStock() {
     try {
+        // Clear any existing auto-retry timeout
+        if (autoRetryTimeout) {
+            clearTimeout(autoRetryTimeout);
+            autoRetryTimeout = null;
+        }
+
         stockContainer.innerHTML = '<div class="loading">Loading stock data...</div>';
         
         const response = await fetch(`${API_BASE_URL}/stock/GetStock`);
@@ -330,16 +249,16 @@ async function fetchStock(forceUpdate = false) {
 
         const stockData = await response.json();
         
-        // Always display the current stock data
+        // Display the current stock data
         displayStock(stockData);
         
-        // Check for new items for notifications
-        if (typeof window.checkForNewItems === 'function') {
-            checkForNewItems(stockData);
-        }
+        // Always save successful stock fetches to Firebase
+        await saveCurrentStockToFirebase(stockData);
         
-        // Save current stock snapshot to Firebase
-        await saveCurrentStockToFirebase(stockData, forceUpdate);
+        // Check for notifications
+        if (typeof window.checkForNewItems === 'function') {
+            window.checkForNewItems(stockData);
+        }
         
         stockTimestamp.textContent = `Last updated: ${new Date().toLocaleString()}`;
         updateStockStatus(true, `Stock data loaded successfully`);
@@ -349,132 +268,24 @@ async function fetchStock(forceUpdate = false) {
             displayHistory();
         }
         
+        console.log('✅ Stock fetched and saved successfully');
         return stockData;
+        
     } catch (error) {
-        console.error('Error fetching stock:', error);
+        console.error('❌ Error fetching stock:', error);
         stockContainer.innerHTML = `<div class="error">Error loading stock data: ${error.message}</div>`;
         updateStockStatus(false, `Error: ${error.message}`);
+        
+        // Set auto-retry timeout for failed requests
+        console.log(`⏰ Setting auto-retry in ${RETRY_DELAY / 1000} seconds...`);
+        autoRetryTimeout = setTimeout(() => {
+            console.log('🔄 Auto-retrying stock fetch...');
+            fetchStock();
+        }, RETRY_DELAY);
+        
         return null;
     }
 }
-
-// Replace the refreshAll function
-function refreshAll() {
-    // Clear any pending auto-refresh
-    if (stockRefreshTimeout) {
-        clearTimeout(stockRefreshTimeout);
-        stockRefreshTimeout = null;
-    }
-    
-    // Clear the auto-refresh timer if user manually refreshes
-    if (autoRefreshTimer) {
-        clearTimeout(autoRefreshTimer);
-        autoRefreshTimer = null;
-        stockChangedRecently = false;
-    }
-    
-    // Calculate timers and fetch stock with force update
-    calculateTimers();
-    fetchStock(true); // Force update to bypass comparison
-    
-    // Refresh history if visible
-    if (historyVisible) {
-        displayHistory();
-    }
-}
-
-// Simplified saveCurrentStockToFirebase function - remove comparison
-async function saveCurrentStockToFirebase(stockData) {
-    if (!db) return;
-    
-    try {
-        const docData = {
-            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-            stockData: stockData,
-            categories: {
-                seeds: stockData.seedsStock || [],
-                gear: stockData.gearStock || [],
-                eggs: stockData.eggStock || [],
-                cosmetics: stockData.cosmeticsStock || []
-            },
-            totalItems: {
-                seeds: stockData.seedsStock?.length || 0,
-                gear: stockData.gearStock?.length || 0,
-                eggs: stockData.eggStock?.length || 0,
-                cosmetics: stockData.cosmeticsStock?.length || 0
-            }
-        };
-
-        await db.collection('current_stock').add(docData);
-        console.log('✅ Stock snapshot saved to Firebase');
-        
-    } catch (error) {
-        console.error('❌ Error saving stock to Firebase:', error);
-    }
-}
-
-// Optional: Add a function to save only when stock actually changes
-async function saveOnlyIfChanged(stockData) {
-    if (!db) return;
-    
-    try {
-        // Check if stock data has actually changed
-        if (!stockDataChanged(stockData, lastStockData)) {
-            console.log('📦 Stock data unchanged, skipping save to Firebase');
-            return;
-        }
-        
-        const docData = {
-            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-            stockData: stockData,
-            categories: {
-                seeds: stockData.seedsStock || [],
-                gear: stockData.gearStock || [],
-                eggs: stockData.eggStock || [],
-                cosmetics: stockData.cosmeticsStock || []
-            },
-            totalItems: {
-                seeds: stockData.seedsStock?.length || 0,
-                gear: stockData.gearStock?.length || 0,
-                eggs: stockData.eggStock?.length || 0,
-                cosmetics: stockData.cosmeticsStock?.length || 0
-            },
-            changeDetected: true // Mark this as a change-based save
-        };
-
-        await db.collection('current_stock').add(docData);
-        console.log('✅ Stock changes saved to Firebase');
-        
-        // Update last stock data
-        lastStockData = JSON.parse(JSON.stringify(stockData));
-        
-    } catch (error) {
-        console.error('❌ Error saving stock changes to Firebase:', error);
-    }
-}
-
-// Add a toggle function if you want to switch between modes
-let saveAllFetches = true; // Set to false if you want to save only changes
-
-async function toggleSaveMode() {
-    saveAllFetches = !saveAllFetches;
-    console.log('💾 Save mode changed to:', saveAllFetches ? 'Save all fetches' : 'Save only changes');
-    
-    // Update the save function reference
-    if (saveAllFetches) {
-        window.saveStockFunction = saveCurrentStockToFirebase;
-    } else {
-        window.saveStockFunction = saveOnlyIfChanged;
-    }
-    
-    return saveAllFetches;
-}
-
-// Initialize save mode
-window.saveStockFunction = saveCurrentStockToFirebase;
-
-// Make toggle function available globally
-window.toggleSaveMode = toggleSaveMode;
 
 async function displayHistory() {
     try {
@@ -582,76 +393,36 @@ function displayStock(stockData) {
 }
 
 // Database cleanup function
-// Updated database cleanup function
 async function clearOldStockData() {
     if (!db) return;
     
     try {
-        console.log('🗑️ Starting database cleanup...');
+        console.log('🗑️ Starting daily database cleanup...');
         
-        // Since we're now saving every fetch, we need to be more aggressive with cleanup
-        // Keep last 200 entries instead of 100, and also clean up by time
-        
-        // First, clean up by count - keep last 200 entries
-        const countSnapshot = await db.collection('current_stock')
+        // Keep only the last 100 stock entries
+        const snapshot = await db.collection('current_stock')
             .orderBy('timestamp', 'desc')
-            .offset(200)
+            .offset(100)
             .get();
         
-        // Second, clean up entries older than 7 days regardless of count
-        const sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-        
-        const timeSnapshot = await db.collection('current_stock')
-            .where('timestamp', '<', sevenDaysAgo)
-            .get();
-        
-        // Combine both cleanup operations
-        const docsToDelete = new Set();
-        
-        countSnapshot.forEach(doc => docsToDelete.add(doc.id));
-        timeSnapshot.forEach(doc => docsToDelete.add(doc.id));
-        
-        if (docsToDelete.size > 0) {
-            console.log(`🗑️ Found ${docsToDelete.size} entries to clean up`);
+        if (snapshot.size > 0) {
+            const batch = db.batch();
+            snapshot.forEach(doc => {
+                batch.delete(doc.ref);
+            });
             
-            // Delete in batches of 500 (Firestore limit)
-            const deletePromises = [];
-            let batch = db.batch();
-            let batchCount = 0;
-            
-            for (const docId of docsToDelete) {
-                const docRef = db.collection('current_stock').doc(docId);
-                batch.delete(docRef);
-                batchCount++;
-                
-                if (batchCount >= 500) {
-                    deletePromises.push(batch.commit());
-                    batch = db.batch();
-                    batchCount = 0;
-                }
-            }
-            
-            // Commit final batch if it has any operations
-            if (batchCount > 0) {
-                deletePromises.push(batch.commit());
-            }
-            
-            await Promise.all(deletePromises);
-            console.log(`✅ Cleaned up ${docsToDelete.size} old stock entries`);
-        } else {
-            console.log('✅ No old entries to clean up');
+            await batch.commit();
+            console.log(`✅ Cleaned up ${snapshot.size} old stock entries`);
         }
         
         // Add cleanup log
         await db.collection('system_logs').add({
             timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-            action: 'database_cleanup',
-            entriesRemoved: docsToDelete.size,
-            cleanupType: 'count_and_time_based'
+            action: 'daily_cleanup',
+            entriesRemoved: snapshot.size
         });
         
-        console.log('✅ Database cleanup completed successfully');
+        console.log('✅ Daily database cleanup completed successfully');
         
         // Refresh history display if visible
         if (historyVisible) {
@@ -659,51 +430,41 @@ async function clearOldStockData() {
         }
         
     } catch (error) {
-        console.error('❌ Error during database cleanup:', error);
-        
-        // Log the error
-        try {
-            await db.collection('system_logs').add({
-                timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-                action: 'database_cleanup_error',
-                error: error.message
-            });
-        } catch (logError) {
-            console.error('❌ Error logging cleanup error:', logError);
-        }
+        console.error('❌ Error during daily cleanup:', error);
     }
 }
 
-// Updated scheduling function - clean up more frequently since we're saving more
+// Schedule daily cleanup at 12 AM Philippine time
 function scheduleDailyCleanup() {
     const now = new Date();
     
-    // Run cleanup every 12 hours instead of daily
-    const cleanupInterval = 12 * 60 * 60 * 1000; // 12 hours in milliseconds
+    // Convert to Philippine time (UTC+8)
+    const philippineTime = new Date(now.getTime() + (8 * 60 * 60 * 1000));
     
-    console.log('🕐 Database cleanup scheduled every 12 hours');
+    // Calculate next 12 AM Philippine time
+    const nextMidnight = new Date(philippineTime);
+    nextMidnight.setUTCHours(16, 0, 0, 0); // 12 AM Philippine time = 4 PM UTC (previous day)
     
-    // Run first cleanup after 1 hour
+    // If it's already past midnight today, schedule for tomorrow
+    if (nextMidnight <= now) {
+        nextMidnight.setUTCDate(nextMidnight.getUTCDate() + 1);
+    }
+    
+    const timeUntilMidnight = nextMidnight.getTime() - now.getTime();
+    
+    console.log(`🕐 Next database cleanup scheduled for: ${nextMidnight.toLocaleString('en-US', { timeZone: 'Asia/Manila' })} (Philippine time)`);
+    console.log(`⏱️ Time until cleanup: ${Math.floor(timeUntilMidnight / (1000 * 60 * 60))} hours ${Math.floor((timeUntilMidnight % (1000 * 60 * 60)) / (1000 * 60))} minutes`);
+    
     setTimeout(async () => {
         await clearOldStockData();
         
-        // Then run every 12 hours
-        setInterval(async () => {
-            await clearOldStockData();
-        }, cleanupInterval);
+        // Schedule next cleanup (24 hours later)
+        setTimeout(() => {
+            scheduleDailyCleanup();
+        }, 24 * 60 * 60 * 1000);
         
-    }, 60 * 60 * 1000); // Wait 1 hour before first cleanup
+    }, timeUntilMidnight);
 }
-
-// Manual cleanup function for testing
-async function runManualCleanup() {
-    console.log('🧹 Running manual database cleanup...');
-    await clearOldStockData();
-    console.log('✅ Manual cleanup completed');
-}
-
-// Make manual cleanup available globally
-window.runManualCleanup = runManualCleanup;
 
 function toggleHistory() {
     historyVisible = !historyVisible;
@@ -719,72 +480,44 @@ function toggleHistory() {
     }
 }
 
-async function checkAPIHealth() {
-    try {
-        console.log('🔍 Checking API health...');
-        
-        const response = await fetch(`${API_BASE_URL}/health`, {
-            method: 'GET',
-            headers: {
-                'Cache-Control': 'no-cache'
-            }
-        });
-        
-        if (response.ok) {
-            const health = await response.json();
-            console.log('✅ API Health:', health);
-            return health;
-        } else {
-            console.log('⚠️ API health check failed:', response.status);
-            return null;
-        }
-    } catch (error) {
-        console.error('❌ API health check error:', error);
-        return null;
-    }
-}
-
-// Replace your existing refreshAll function with this one
 function refreshAll() {
-    console.log('🔄 Starting refresh all...');
-    
-    // Clear any pending auto-refresh
+    // Clear any pending timeouts
     if (stockRefreshTimeout) {
         clearTimeout(stockRefreshTimeout);
         stockRefreshTimeout = null;
     }
     
-    // Ask user if they want to force refresh if data hasn't changed recently
-    const lastUpdate = stockTimestamp.textContent;
-    const shouldForce = confirm('Do you want to force refresh the stock data? This will bypass the "unchanged" detection.\n\nClick OK for Force Refresh, or Cancel for Regular Refresh.');
-    
-    if (shouldForce) {
-        console.log('🔄 User requested force refresh');
-        forceRefreshStock();
-    } else {
-        console.log('🔄 User requested regular refresh');
-        // Check API health first
-        checkAPIHealth();
-        
-        // Calculate timers and fetch stock
-        calculateTimers();
-        fetchStock();
+    if (autoRetryTimeout) {
+        clearTimeout(autoRetryTimeout);
+        autoRetryTimeout = null;
     }
+    
+    // Reset expired timers set
+    expiredTimers.clear();
+    
+    // Calculate timers and fetch stock
+    calculateTimers();
+    fetchStock();
     
     // Refresh history if visible
     if (historyVisible) {
         displayHistory();
     }
-    
-    console.log('✅ Refresh all completed');
 }
 
 // Update intervals
 function startUpdates() {
     calculateTimers();
     fetchStock();
+    
+    // Clear any existing interval
+    if (timerUpdateInterval) {
+        clearInterval(timerUpdateInterval);
+    }
+    
     timerUpdateInterval = setInterval(() => {
         updateTimerDisplay(); // Update display every second
+        
         // Recalculate timers every 60 seconds to handle any drift
         if (Date.now() % 60000 < 1000) {
             calculateTimers();
@@ -797,10 +530,19 @@ function stopUpdates() {
         clearInterval(timerUpdateInterval);
         timerUpdateInterval = null;
     }
+    
+    if (stockRefreshTimeout) {
+        clearTimeout(stockRefreshTimeout);
+        stockRefreshTimeout = null;
+    }
+    
+    if (autoRetryTimeout) {
+        clearTimeout(autoRetryTimeout);
+        autoRetryTimeout = null;
+    }
 }
 
 // Page visibility handling
-// Modified page visibility handling for notifications
 document.addEventListener('visibilitychange', function () {
     if (document.hidden) {
         // Only stop visual updates, keep stock checking if notifications are enabled
@@ -833,28 +575,27 @@ document.addEventListener('visibilitychange', function () {
 // Cleanup on page unload
 window.addEventListener('beforeunload', function () {
     stopUpdates();
-    if (stockRefreshTimeout) {
-        clearTimeout(stockRefreshTimeout);
-        stockRefreshTimeout = null;
-    }
 });
 
-// Initialize
-async function initialize() {
-    // Initialize Firebase first
+// Initialize Firebase and load last stock data
+async function initializeFirebaseAndData() {
     const firebaseConnected = await initializeFirebase();
     
     if (firebaseConnected) {
-        console.log('🔥 Firebase connected, starting updates...');
-        
-        // Load last stock data to prevent immediate duplicate
-        await loadLastStockData();
-        
+        console.log('🔥 Firebase connected');
         // Schedule daily cleanup
         scheduleDailyCleanup();
     } else {
         console.log('⚠️ Firebase not connected, continuing without database features...');
     }
+    
+    return firebaseConnected;
+}
+
+// Initialize
+async function initialize() {
+    // Initialize Firebase first
+    await initializeFirebaseAndData();
     
     // Start the main application
     startUpdates();
@@ -890,256 +631,201 @@ async function checkBackgroundStatus() {
     }
 }
 
- function initializeNotificationSystem() {
-// Load saved preferences
-const savedNotifications = localStorage.getItem('notificationsEnabled');
-const savedWatchedItems = localStorage.getItem('watchedItems');
+function initializeNotificationSystem() {
+    // Load saved preferences
+    const savedNotifications = localStorage.getItem('notificationsEnabled');
+    const savedWatchedItems = localStorage.getItem('watchedItems');
 
-if (savedNotifications) {
-    notificationsEnabled = JSON.parse(savedNotifications);
-    document.getElementById('notificationToggle').checked = notificationsEnabled;
-}
+    if (savedNotifications) {
+        notificationsEnabled = JSON.parse(savedNotifications);
+        const toggleElement = document.getElementById('notificationToggle');
+        if (toggleElement) {
+            toggleElement.checked = notificationsEnabled;
+        }
+    }
 
-if (savedWatchedItems) {
-    watchedItems = new Set(JSON.parse(savedWatchedItems));
-    updateSelectedItemsDisplay();
-    updateCheckboxes();
-}
+    if (savedWatchedItems) {
+        watchedItems = new Set(JSON.parse(savedWatchedItems));
+        updateSelectedItemsDisplay();
+        updateCheckboxes();
+    }
 
-// Request notification permission
-if ('Notification' in window && notificationsEnabled) {
-    Notification.requestPermission();
-}
+    // Request notification permission
+    if ('Notification' in window && notificationsEnabled) {
+        Notification.requestPermission();
+    }
 }
 
 // Event listeners for notification system
-document.getElementById('notificationToggle').addEventListener('change', function(e) {
-notificationsEnabled = e.target.checked;
-localStorage.setItem('notificationsEnabled', JSON.stringify(notificationsEnabled));
+document.addEventListener('DOMContentLoaded', function() {
+    initializeNotificationSystem();
+    
+    const notificationToggle = document.getElementById('notificationToggle');
+    if (notificationToggle) {
+        notificationToggle.addEventListener('change', function(e) {
+            notificationsEnabled = e.target.checked;
+            localStorage.setItem('notificationsEnabled', JSON.stringify(notificationsEnabled));
 
-if (notificationsEnabled && 'Notification' in window) {
-    Notification.requestPermission().then(permission => {
-        if (permission === 'granted') {
-            showNotificationAlert('Notifications enabled! You\'ll be alerted when watched items restock.', 'success');
-        } else {
-            showNotificationAlert('Please allow notifications in your browser settings.', 'warning');
-        }
-    });
-} else if (!notificationsEnabled) {
-    showNotificationAlert('Notifications disabled.', 'warning');
-}
-});
+            if (notificationsEnabled && 'Notification' in window) {
+                Notification.requestPermission().then(permission => {
+                    if (permission === 'granted') {
+                        showNotificationAlert('Notifications enabled! You\'ll be alerted when watched items restock.', 'success');
+                    } else {
+                        showNotificationAlert('Please allow notifications in your browser settings.', 'warning');
+                    }
+                });
+            } else if (!notificationsEnabled) {
+                showNotificationAlert('Notifications disabled.', 'warning');
+            }
+        });
+    }
 
-// Dropdown functionality
-document.getElementById('itemSelector').addEventListener('click', function(e) {
-e.stopPropagation();
-const dropdown = document.getElementById('dropdownContent');
-dropdown.classList.toggle('show');
+    // Dropdown functionality
+    const itemSelector = document.getElementById('itemSelector');
+    if (itemSelector) {
+        itemSelector.addEventListener('click', function(e) {
+            e.stopPropagation();
+            const dropdown = document.getElementById('dropdownContent');
+            if (dropdown) {
+                dropdown.classList.toggle('show');
+            }
+        });
+    }
+
+    // Handle checkbox changes
+    const dropdownContent = document.getElementById('dropdownContent');
+    if (dropdownContent) {
+        dropdownContent.addEventListener('change', function(e) {
+            if (e.target.type === 'checkbox') {
+                const itemName = e.target.value;
+                const category = e.target.dataset.category;
+                
+                if (e.target.checked) {
+                    watchedItems.add(itemName);
+                } else {
+                    watchedItems.delete(itemName);
+                }
+                
+                updateSelectedItemsDisplay();
+                localStorage.setItem('watchedItems', JSON.stringify([...watchedItems]));
+            }
+        });
+    }
 });
 
 // Close dropdown when clicking outside
 document.addEventListener('click', function(e) {
-const dropdown = document.getElementById('dropdownContent');
-if (!e.target.closest('.notification-dropdown')) {
-    dropdown.classList.remove('show');
-}
-});
-
-// Handle checkbox changes
-document.getElementById('dropdownContent').addEventListener('change', function(e) {
-if (e.target.type === 'checkbox') {
-    const itemName = e.target.value;
-    const category = e.target.dataset.category;
-    
-    if (e.target.checked) {
-        watchedItems.add(itemName);
-    } else {
-        watchedItems.delete(itemName);
+    const dropdown = document.getElementById('dropdownContent');
+    if (dropdown && !e.target.closest('.notification-dropdown')) {
+        dropdown.classList.remove('show');
     }
-    
-    updateSelectedItemsDisplay();
-    localStorage.setItem('watchedItems', JSON.stringify([...watchedItems]));
-}
 });
 
 // Update selected items display
 function updateSelectedItemsDisplay() {
-const container = document.getElementById('selectedItemsList');
+    const container = document.getElementById('selectedItemsList');
+    if (!container) return;
 
-if (watchedItems.size === 0) {
-    container.innerHTML = '<span style="color: #666;">No items selected</span>';
-    return;
-}
+    if (watchedItems.size === 0) {
+        container.innerHTML = '<span style="color: #666;">No items selected</span>';
+        return;
+    }
 
-container.innerHTML = '';
-watchedItems.forEach(item => {
-    const itemElement = document.createElement('span');
-    itemElement.className = 'selected-item';
-    itemElement.innerHTML = `
-        ${item}
-        <button class="remove-btn" onclick="removeWatchedItem('${item}')">×</button>
-    `;
-    container.appendChild(itemElement);
-});
+    container.innerHTML = '';
+    watchedItems.forEach(item => {
+        const itemElement = document.createElement('span');
+        itemElement.className = 'selected-item';
+        itemElement.innerHTML = `
+            ${item}
+            <button class="remove-btn" onclick="removeWatchedItem('${item}')">×</button>
+        `;
+        container.appendChild(itemElement);
+    });
 }
 
 // Update checkboxes based on watched items
 function updateCheckboxes() {
-const checkboxes = document.querySelectorAll('#dropdownContent input[type="checkbox"]');
-checkboxes.forEach(checkbox => {
-    checkbox.checked = watchedItems.has(checkbox.value);
-});
+    const checkboxes = document.querySelectorAll('#dropdownContent input[type="checkbox"]');
+    checkboxes.forEach(checkbox => {
+        checkbox.checked = watchedItems.has(checkbox.value);
+    });
 }
 
 // Remove watched item
 function removeWatchedItem(itemName) {
-watchedItems.delete(itemName);
-updateSelectedItemsDisplay();
-updateCheckboxes();
-localStorage.setItem('watchedItems', JSON.stringify([...watchedItems]));
+    watchedItems.delete(itemName);
+    updateSelectedItemsDisplay();
+    updateCheckboxes();
+    localStorage.setItem('watchedItems', JSON.stringify([...watchedItems]));
 }
 
 // Check for new stock items
 function checkForNewItems(stockData) {
-if (!notificationsEnabled || watchedItems.size === 0) return;
+    if (!notificationsEnabled || watchedItems.size === 0) return;
 
-const currentStockItems = new Set();
+    const currentStockItems = new Set();
 
-// Extract all current stock items
-const categories = ['seedsStock', 'gearStock', 'eggStock', 'cosmeticsStock'];
-categories.forEach(category => {
-    const items = stockData[category] || [];
-    items.forEach(item => {
-        currentStockItems.add(item.name);
+    // Extract all current stock items
+    const categories = ['seedsStock', 'gearStock', 'eggStock', 'cosmeticsStock'];
+    categories.forEach(category => {
+        const items = stockData[category] || [];
+        items.forEach(item => {
+            currentStockItems.add(item.name);
+        });
     });
-});
 
-// Check for newly appeared watched items
-const newItems = [];
-watchedItems.forEach(watchedItem => {
-    if (currentStockItems.has(watchedItem) && !previousStockItems.has(watchedItem)) {
-        newItems.push(watchedItem);
+    // Check for newly appeared watched items
+    const newItems = [];
+    watchedItems.forEach(watchedItem => {
+        if (currentStockItems.has(watchedItem) && !previousStockItems.has(watchedItem)) {
+            newItems.push(watchedItem);
+        }
+    });
+
+    // Send notifications for new items
+    if (newItems.length > 0) {
+        const message = newItems.length === 1 
+            ? `${newItems[0]} is now in stock!`
+            : `${newItems.length} watched items are now in stock: ${newItems.join(', ')}`;
+        
+        showNotification('🔔 Stock Alert', message);
+        showNotificationAlert(message, 'success');
     }
-});
 
-// Send notifications for new items
-if (newItems.length > 0) {
-    const message = newItems.length === 1 
-        ? `${newItems[0]} is now in stock!`
-        : `${newItems.length} watched items are now in stock: ${newItems.join(', ')}`;
-    
-    showNotification('🔔 Stock Alert', message);
-    showNotificationAlert(message, 'success');
-}
-
-// Update previous stock items
-previousStockItems = currentStockItems;
+    // Update previous stock items
+    previousStockItems = currentStockItems;
 }
 
 // Show browser notification
 function showNotification(title, message) {
-if ('Notification' in window && Notification.permission === 'granted') {
-    new Notification(title, {
-        body: message,
-        icon: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEyIDJDMTMuMSAyIDE0IDIuOSAxNCA0VjVDMTcuMyA2LjcgMTkgMTAuMSAxOSAxNFYxOUwyMSAyMVYyMkg5SDE5VjIxTDE5IDE5VjE0QzE5IDEwLjEgMTcuMyA2LjcgMTQgNVY0QzE0IDIuOSAxMy4xIDIgMTIgMloiIGZpbGw9IiMwMDdiZmYiLz4KPC9zdmc+'
-    });
-}
+    if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification(title, {
+            body: message,
+            icon: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEyIDJDMTMuMSAyIDE0IDIuOSAxNCA0VjVDMTcuMyA2LjcgMTkgMTAuMSAxOSAxNFYxOUwyMSAyMVYyMkg5SDE5VjIxTDE5IDE5VjE0QzE5IDEwLjEgMTcuMyA2LjcgMTQgNVY0QzE0IDIuOSAxMy4xIDIgMTIgMloiIGZpbGw9IiMwMDdiZmYiLz4KPC9zdmc+'
+        });
+    }
 }
 
 // Show in-page notification alert
 function showNotificationAlert(message, type = 'success') {
-const alert = document.createElement('div');
-alert.className = `notification-alert ${type}`;
-alert.innerHTML = `
-    ${message}
-    <button class="close-btn" onclick="this.parentElement.remove()">×</button>
-`;
+    const alert = document.createElement('div');
+    alert.className = `notification-alert ${type}`;
+    alert.innerHTML = `
+        ${message}
+        <button class="close-btn" onclick="this.parentElement.remove()">×</button>
+    `;
 
-document.body.appendChild(alert);
+    document.body.appendChild(alert);
 
-// Auto-remove after 5 seconds
-setTimeout(() => {
-    if (alert.parentElement) {
-        alert.remove();
-    }
-}, 5000);
+    // Auto-remove after 5 seconds
+    setTimeout(() => {
+        if (alert.parentElement) {
+            alert.remove();
+        }
+    }, 5000);
 }
-
-// Initialize notification system when page loads
-document.addEventListener('DOMContentLoaded', function() {
-initializeNotificationSystem();
-});
 
 // Make functions available globally for integration
 window.checkForNewItems = checkForNewItems;
 window.initializeNotificationSystem = initializeNotificationSystem;
-function diagnosticCheck() {
-    console.log('🔍 === DIAGNOSTIC CHECK ===');
-    console.log('🔍 Current time:', new Date().toISOString());
-    console.log('🔍 API Base URL:', API_BASE_URL);
-    console.log('🔍 Firebase connected:', !!db);
-    console.log('🔍 Notifications enabled:', notificationsEnabled);
-    console.log('🔍 Watched items:', [...watchedItems]);
-    console.log('🔍 Timer update interval active:', !!timerUpdateInterval);
-    console.log('🔍 Stock refresh timeout active:', !!stockRefreshTimeout);
-    console.log('🔍 History visible:', historyVisible);
-    console.log('🔍 Last stock data exists:', !!lastStockData);
-    console.log('🔍 Previous stock items count:', previousStockItems.size);
-    console.log('🔍 === END DIAGNOSTIC ===');
-}
-
-// 7. Test the API endpoint directly
-async function testAPIEndpoint() {
-    console.log('🧪 Testing API endpoint...');
-    
-    try {
-        // Test with multiple requests to see if data changes
-        const results = [];
-        
-        for (let i = 0; i < 3; i++) {
-            const timestamp = Date.now();
-            const response = await fetch(`${API_BASE_URL}/stock/GetStock?_t=${timestamp}`);
-            
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            
-            const data = await response.json();
-            results.push({
-                timestamp: new Date().toISOString(),
-                dataSize: JSON.stringify(data).length,
-                seedsCount: data.seedsStock?.length || 0,
-                gearCount: data.gearStock?.length || 0,
-                eggCount: data.eggStock?.length || 0,
-                cosmeticsCount: data.cosmeticsStock?.length || 0
-            });
-            
-            // Wait 1 second between requests
-            await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-        
-        console.log('🧪 API Test Results:', results);
-        
-        // Check if any results differ
-        const signatures = results.map(r => `${r.seedsCount}-${r.gearCount}-${r.eggCount}-${r.cosmeticsCount}`);
-        const uniqueSignatures = new Set(signatures);
-        
-        console.log('🧪 Unique signatures found:', uniqueSignatures.size);
-        console.log('🧪 All signatures:', signatures);
-        
-        if (uniqueSignatures.size === 1) {
-            console.log('⚠️ API is returning identical data - this might be why stock isn\'t updating');
-        } else {
-            console.log('✅ API is returning different data - stock should be updating');
-        }
-        
-    } catch (error) {
-        console.error('❌ API test failed:', error);
-    }
-}
-
-// 8. Make functions available globally for console debugging
-window.forceRefreshStock = forceRefreshStock;
-window.checkAPIHealth = checkAPIHealth;
-window.diagnosticCheck = diagnosticCheck;
-window.testAPIEndpoint = testAPIEndpoint;
+window.removeWatchedItem = removeWatchedItem;
