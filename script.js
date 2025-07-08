@@ -299,6 +299,7 @@ function updateTimerDisplay() {
 }
 
 // Stock functions
+// Replace your existing fetchStock function with this one
 async function fetchStock() {
     try {
         stockContainer.innerHTML = '<div class="loading">Loading stock data...</div>';
@@ -317,29 +318,16 @@ async function fetchStock() {
 
         const stockData = await response.json();
         
-        // Enhanced logging to see what's happening
-        console.log('📦 Raw stock data received:', stockData);
-        console.log('📦 Stock data timestamp:', new Date().toISOString());
+        // Log the fetch
+        console.log('📦 Stock data fetched at:', new Date().toISOString());
+        console.log('📦 Raw stock data:', stockData);
         
-        // Check if data has changed with detailed logging
-        const hasChanged = stockDataChanged(stockData, lastStockData);
-        console.log('📦 Stock data changed:', hasChanged);
-        
-        if (hasChanged) {
-            console.log('📦 New stock signature:', createStockSignature(stockData));
-            console.log('📦 Previous stock signature:', lastStockData ? createStockSignature(lastStockData) : 'null');
-        }
-        
-        // Always display the stock data, even if unchanged
+        // Always display the current stock data
         displayStock(stockData);
         
-        // Save to Firebase if changed
-        if (hasChanged) {
-            await saveCurrentStockToFirebase(stockData);
-            console.log('✅ Stock data saved to Firebase');
-        } else {
-            console.log('📦 Stock data unchanged, skipping Firebase save');
-        }
+        // ALWAYS save to Firebase - remove the comparison check
+        await saveCurrentStockToFirebase(stockData);
+        console.log('✅ Stock data saved to Firebase (no comparison)');
         
         // Check for new items for notifications
         if (typeof checkForNewItems === 'function') {
@@ -362,6 +350,99 @@ async function fetchStock() {
         return null;
     }
 }
+
+// Simplified saveCurrentStockToFirebase function - remove comparison
+async function saveCurrentStockToFirebase(stockData) {
+    if (!db) return;
+    
+    try {
+        const docData = {
+            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+            stockData: stockData,
+            categories: {
+                seeds: stockData.seedsStock || [],
+                gear: stockData.gearStock || [],
+                eggs: stockData.eggStock || [],
+                cosmetics: stockData.cosmeticsStock || []
+            },
+            totalItems: {
+                seeds: stockData.seedsStock?.length || 0,
+                gear: stockData.gearStock?.length || 0,
+                eggs: stockData.eggStock?.length || 0,
+                cosmetics: stockData.cosmeticsStock?.length || 0
+            }
+        };
+
+        await db.collection('current_stock').add(docData);
+        console.log('✅ Stock snapshot saved to Firebase');
+        
+    } catch (error) {
+        console.error('❌ Error saving stock to Firebase:', error);
+    }
+}
+
+// Optional: Add a function to save only when stock actually changes
+async function saveOnlyIfChanged(stockData) {
+    if (!db) return;
+    
+    try {
+        // Check if stock data has actually changed
+        if (!stockDataChanged(stockData, lastStockData)) {
+            console.log('📦 Stock data unchanged, skipping save to Firebase');
+            return;
+        }
+        
+        const docData = {
+            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+            stockData: stockData,
+            categories: {
+                seeds: stockData.seedsStock || [],
+                gear: stockData.gearStock || [],
+                eggs: stockData.eggStock || [],
+                cosmetics: stockData.cosmeticsStock || []
+            },
+            totalItems: {
+                seeds: stockData.seedsStock?.length || 0,
+                gear: stockData.gearStock?.length || 0,
+                eggs: stockData.eggStock?.length || 0,
+                cosmetics: stockData.cosmeticsStock?.length || 0
+            },
+            changeDetected: true // Mark this as a change-based save
+        };
+
+        await db.collection('current_stock').add(docData);
+        console.log('✅ Stock changes saved to Firebase');
+        
+        // Update last stock data
+        lastStockData = JSON.parse(JSON.stringify(stockData));
+        
+    } catch (error) {
+        console.error('❌ Error saving stock changes to Firebase:', error);
+    }
+}
+
+// Add a toggle function if you want to switch between modes
+let saveAllFetches = true; // Set to false if you want to save only changes
+
+async function toggleSaveMode() {
+    saveAllFetches = !saveAllFetches;
+    console.log('💾 Save mode changed to:', saveAllFetches ? 'Save all fetches' : 'Save only changes');
+    
+    // Update the save function reference
+    if (saveAllFetches) {
+        window.saveStockFunction = saveCurrentStockToFirebase;
+    } else {
+        window.saveStockFunction = saveOnlyIfChanged;
+    }
+    
+    return saveAllFetches;
+}
+
+// Initialize save mode
+window.saveStockFunction = saveCurrentStockToFirebase;
+
+// Make toggle function available globally
+window.toggleSaveMode = toggleSaveMode;
 
 async function displayHistory() {
     try {
@@ -469,36 +550,76 @@ function displayStock(stockData) {
 }
 
 // Database cleanup function
+// Updated database cleanup function
 async function clearOldStockData() {
     if (!db) return;
     
     try {
-        console.log('🗑️ Starting daily database cleanup...');
+        console.log('🗑️ Starting database cleanup...');
         
-        // Keep only the last 100 stock entries
-        const snapshot = await db.collection('current_stock')
+        // Since we're now saving every fetch, we need to be more aggressive with cleanup
+        // Keep last 200 entries instead of 100, and also clean up by time
+        
+        // First, clean up by count - keep last 200 entries
+        const countSnapshot = await db.collection('current_stock')
             .orderBy('timestamp', 'desc')
-            .offset(100)
+            .offset(200)
             .get();
         
-        if (snapshot.size > 0) {
-            const batch = db.batch();
-            snapshot.forEach(doc => {
-                batch.delete(doc.ref);
-            });
+        // Second, clean up entries older than 7 days regardless of count
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        
+        const timeSnapshot = await db.collection('current_stock')
+            .where('timestamp', '<', sevenDaysAgo)
+            .get();
+        
+        // Combine both cleanup operations
+        const docsToDelete = new Set();
+        
+        countSnapshot.forEach(doc => docsToDelete.add(doc.id));
+        timeSnapshot.forEach(doc => docsToDelete.add(doc.id));
+        
+        if (docsToDelete.size > 0) {
+            console.log(`🗑️ Found ${docsToDelete.size} entries to clean up`);
             
-            await batch.commit();
-            console.log(`✅ Cleaned up ${snapshot.size} old stock entries`);
+            // Delete in batches of 500 (Firestore limit)
+            const deletePromises = [];
+            let batch = db.batch();
+            let batchCount = 0;
+            
+            for (const docId of docsToDelete) {
+                const docRef = db.collection('current_stock').doc(docId);
+                batch.delete(docRef);
+                batchCount++;
+                
+                if (batchCount >= 500) {
+                    deletePromises.push(batch.commit());
+                    batch = db.batch();
+                    batchCount = 0;
+                }
+            }
+            
+            // Commit final batch if it has any operations
+            if (batchCount > 0) {
+                deletePromises.push(batch.commit());
+            }
+            
+            await Promise.all(deletePromises);
+            console.log(`✅ Cleaned up ${docsToDelete.size} old stock entries`);
+        } else {
+            console.log('✅ No old entries to clean up');
         }
         
         // Add cleanup log
         await db.collection('system_logs').add({
             timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-            action: 'daily_cleanup',
-            entriesRemoved: snapshot.size
+            action: 'database_cleanup',
+            entriesRemoved: docsToDelete.size,
+            cleanupType: 'count_and_time_based'
         });
         
-        console.log('✅ Daily database cleanup completed successfully');
+        console.log('✅ Database cleanup completed successfully');
         
         // Refresh history display if visible
         if (historyVisible) {
@@ -506,41 +627,51 @@ async function clearOldStockData() {
         }
         
     } catch (error) {
-        console.error('❌ Error during daily cleanup:', error);
+        console.error('❌ Error during database cleanup:', error);
+        
+        // Log the error
+        try {
+            await db.collection('system_logs').add({
+                timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                action: 'database_cleanup_error',
+                error: error.message
+            });
+        } catch (logError) {
+            console.error('❌ Error logging cleanup error:', logError);
+        }
     }
 }
 
-// Schedule daily cleanup at 12 AM Philippine time
+// Updated scheduling function - clean up more frequently since we're saving more
 function scheduleDailyCleanup() {
     const now = new Date();
     
-    // Convert to Philippine time (UTC+8)
-    const philippineTime = new Date(now.getTime() + (8 * 60 * 60 * 1000));
+    // Run cleanup every 12 hours instead of daily
+    const cleanupInterval = 12 * 60 * 60 * 1000; // 12 hours in milliseconds
     
-    // Calculate next 12 AM Philippine time
-    const nextMidnight = new Date(philippineTime);
-    nextMidnight.setUTCHours(16, 0, 0, 0); // 12 AM Philippine time = 4 PM UTC (previous day)
+    console.log('🕐 Database cleanup scheduled every 12 hours');
     
-    // If it's already past midnight today, schedule for tomorrow
-    if (nextMidnight <= now) {
-        nextMidnight.setUTCDate(nextMidnight.getUTCDate() + 1);
-    }
-    
-    const timeUntilMidnight = nextMidnight.getTime() - now.getTime();
-    
-    console.log(`🕐 Next database cleanup scheduled for: ${nextMidnight.toLocaleString('en-US', { timeZone: 'Asia/Manila' })} (Philippine time)`);
-    console.log(`⏱️ Time until cleanup: ${Math.floor(timeUntilMidnight / (1000 * 60 * 60))} hours ${Math.floor((timeUntilMidnight % (1000 * 60 * 60)) / (1000 * 60))} minutes`);
-    
+    // Run first cleanup after 1 hour
     setTimeout(async () => {
         await clearOldStockData();
         
-        // Schedule next cleanup (24 hours later)
-        setTimeout(() => {
-            scheduleDailyCleanup();
-        }, 24 * 60 * 60 * 1000);
+        // Then run every 12 hours
+        setInterval(async () => {
+            await clearOldStockData();
+        }, cleanupInterval);
         
-    }, timeUntilMidnight);
+    }, 60 * 60 * 1000); // Wait 1 hour before first cleanup
 }
+
+// Manual cleanup function for testing
+async function runManualCleanup() {
+    console.log('🧹 Running manual database cleanup...');
+    await clearOldStockData();
+    console.log('✅ Manual cleanup completed');
+}
+
+// Make manual cleanup available globally
+window.runManualCleanup = runManualCleanup;
 
 function toggleHistory() {
     historyVisible = !historyVisible;
