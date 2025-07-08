@@ -47,7 +47,7 @@ let stockRefreshTimeout = null;
 let autoRefreshTimeout = null;
 let restockTimes = {};
 let historyVisible = false;
-let expiredTimers = new Set(); // Track which timers have expired
+let lastTimerExpired = {}; // Track which timers have expired
 
 // Timer elements
 const timerElements = {
@@ -78,7 +78,7 @@ const timerMapping = {
     'cosmeticTimer': 'cosmetic'
 };
 
-// Firebase Database Functions - Always save stock data
+// Firebase Database Functions - Always save successful fetches
 async function saveCurrentStockToFirebase(stockData) {
     if (!db) return;
     
@@ -189,8 +189,6 @@ function calculateTimers() {
             };
         });
 
-        // Clear expired timers tracking when recalculating
-        expiredTimers.clear();
         updateTimerDisplay();
         
     } catch (error) {
@@ -198,7 +196,7 @@ function calculateTimers() {
     }
 }
 
-// Update timer display
+// Update timer display with improved expiration handling
 function updateTimerDisplay() {
     const now = Date.now();
     
@@ -215,17 +213,30 @@ function updateTimerDisplay() {
             element.className = isExpired ? 'timer-time expired' : 'timer-time';
             container.className = isExpired ? 'timer expired' : 'timer';
 
-            // Auto-refresh stock when timer expires (only once per timer cycle)
-            if (isExpired && !expiredTimers.has(apiKey)) {
-                expiredTimers.add(apiKey);
-                console.log(`⏰ ${apiKey} timer expired, refreshing stock...`);
+            // Check if timer just expired (transition from not expired to expired)
+            const wasExpired = lastTimerExpired[apiKey] || false;
+            
+            if (isExpired && !wasExpired) {
+                console.log(`⏰ ${apiKey} timer expired, triggering stock refresh...`);
+                lastTimerExpired[apiKey] = true;
+                
+                // Clear any pending auto-refresh
+                if (autoRefreshTimeout) {
+                    clearTimeout(autoRefreshTimeout);
+                    autoRefreshTimeout = null;
+                }
+                
+                // Immediate fetch when timer expires
                 fetchStock();
+            } else if (!isExpired && wasExpired) {
+                // Timer reset, mark as not expired
+                lastTimerExpired[apiKey] = false;
             }
         }
     });
 }
 
-// Stock functions
+// Stock functions with automatic refresh logic
 async function fetchStock() {
     try {
         stockContainer.innerHTML = '<div class="loading">Loading stock data...</div>';
@@ -238,10 +249,10 @@ async function fetchStock() {
         // Display the current stock data
         displayStock(stockData);
         
-        // Always save stock data to Firebase history
+        // Always save successful stock fetches to Firebase
         await saveCurrentStockToFirebase(stockData);
         
-        // Check for new items (notifications)
+        // Check for new items for notifications
         if (window.checkForNewItems) {
             window.checkForNewItems(stockData);
         }
@@ -249,11 +260,15 @@ async function fetchStock() {
         stockTimestamp.textContent = `Last updated: ${new Date().toLocaleString()}`;
         updateStockStatus(true, `Stock data loaded successfully`);
         
-        // Clear any existing auto-refresh timeout
+        // Set up auto-refresh after 30 seconds
         if (autoRefreshTimeout) {
             clearTimeout(autoRefreshTimeout);
-            autoRefreshTimeout = null;
         }
+        
+        autoRefreshTimeout = setTimeout(() => {
+            console.log('🔄 Auto-refreshing stock data...');
+            fetchStock();
+        }, AUTO_REFRESH_DELAY);
         
         // Refresh history if visible
         if (historyVisible) {
@@ -266,14 +281,14 @@ async function fetchStock() {
         stockContainer.innerHTML = `<div class="error">Error loading stock data: ${error.message}</div>`;
         updateStockStatus(false, `Error: ${error.message}`);
         
-        // Schedule auto-refresh after 30 seconds if fetch failed
+        // Retry after 10 seconds on error
         if (autoRefreshTimeout) {
             clearTimeout(autoRefreshTimeout);
         }
         autoRefreshTimeout = setTimeout(() => {
-            console.log('🔄 Auto-refreshing stock after fetch error...');
+            console.log('🔄 Retrying stock fetch after error...');
             fetchStock();
-        }, AUTO_REFRESH_DELAY);
+        }, 10000);
         
         return null;
     }
@@ -478,10 +493,14 @@ function refreshAll() {
         clearTimeout(stockRefreshTimeout);
         stockRefreshTimeout = null;
     }
+    
     if (autoRefreshTimeout) {
         clearTimeout(autoRefreshTimeout);
         autoRefreshTimeout = null;
     }
+    
+    // Reset timer expiration tracking
+    lastTimerExpired = {};
     
     // Calculate timers and fetch stock
     calculateTimers();
@@ -511,13 +530,14 @@ function stopUpdates() {
         clearInterval(timerUpdateInterval);
         timerUpdateInterval = null;
     }
+    
     if (autoRefreshTimeout) {
         clearTimeout(autoRefreshTimeout);
         autoRefreshTimeout = null;
     }
 }
 
-// Modified page visibility handling for notifications
+// Page visibility handling
 document.addEventListener('visibilitychange', function () {
     if (document.hidden) {
         // Only stop visual updates, keep stock checking if notifications are enabled
@@ -539,6 +559,10 @@ document.addEventListener('visibilitychange', function () {
             if (stockRefreshTimeout) {
                 clearTimeout(stockRefreshTimeout);
                 stockRefreshTimeout = null;
+            }
+            if (autoRefreshTimeout) {
+                clearTimeout(autoRefreshTimeout);
+                autoRefreshTimeout = null;
             }
         }
     } else {
