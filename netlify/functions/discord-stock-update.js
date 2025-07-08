@@ -13,13 +13,13 @@ exports.handler = async (event) => {
 
     const discordWebhookUrl = process.env.DISCORD_WEBHOOK_URL;
 
-    const content = `<1392202672186069075>📦 Stock updated!\n\n${changes.map(change => {
-      return `${change.emoji || ''} **${change.category}** → ${change.item} ${
-        change.type === 'changed'
-          ? `(${change.oldValue} → ${change.newValue})`
-          : `x${change.value ?? ''}`
-      }`;
-    }).join('\n')}`;
+   const content = `📢 @everyone\n📦 **Stock Updated!**\n\n${changes.map(change => {
+  const line = `${change.emoji || ''} **${change.category}** → ${change.item}`;
+  return change.type === 'changed'
+    ? `${line} (${change.oldValue} → ${change.newValue})`
+    : `${line} x${change.value ?? ''}`;
+}).join('\n')}`;
+
 
     await fetch(discordWebhookUrl, {
       method: 'POST',
