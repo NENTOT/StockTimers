@@ -122,8 +122,8 @@ exports.handler = async (event, context) => {
         // Get pre-cleanup statistics
         console.log('📊 Getting pre-cleanup statistics...');
         const preStats = {
-            stock_history: await getCollectionStats('stock_history'),
-            stock_changes: await getCollectionStats('stock_changes')
+            stock_history: 'skipped_due_to_quota',
+            stock_changes: 'skipped_due_to_quota'
         };
         
         // Perform cleanup operations
@@ -138,8 +138,8 @@ exports.handler = async (event, context) => {
         // Get post-cleanup statistics
         console.log('📊 Getting post-cleanup statistics...');
         const postStats = {
-            stock_history: await getCollectionStats('stock_history'),
-            stock_changes: await getCollectionStats('stock_changes')
+            stock_history: 'skipped_due_to_quota',
+            stock_changes: 'skipped_due_to_quota'
         };
         
         const executionTime = Date.now() - startTime;

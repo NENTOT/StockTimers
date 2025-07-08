@@ -1,4 +1,4 @@
-// netlify/functions/daily-cleanup.js
+// netlify/functions/monitor-stock.js
 const admin = require('firebase-admin');
 
 // Initialize Firebase Admin (only once)
@@ -23,73 +23,71 @@ if (!admin.apps.length) {
 }
 
 const db = admin.firestore();
+const API_BASE_URL = 'https://grow-a-garden-api-4ses.onrender.com/api';
 
-// Function to delete documents older than specified days
-async function deleteOldDocuments(collectionName, daysToKeep = 30) {
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
-    
-    console.log(`🗑️ Cleaning up ${collectionName} older than ${daysToKeep} days (before ${cutoffDate.toISOString()})`);
+// Compare stock data function
+function compareStockData(newData, oldData) {
+    if (!oldData) return { hasChanges: false, changes: [] };
     
     try {
-        const query = db.collection(collectionName)
-            .where('timestamp', '<', cutoffDate)
-            .limit(500); // Process in batches to avoid timeout
+        const changes = [];
+        const categories = [
+            { key: 'seedsStock', name: 'Seeds', emoji: '🌱' },
+            { key: 'gearStock', name: 'Gear', emoji: '⚙️' },
+            { key: 'eggStock', name: 'Eggs', emoji: '🥚' },
+            { key: 'cosmeticsStock', name: 'Cosmetics', emoji: '💄' }
+        ];
         
-        const snapshot = await query.get();
-        
-        if (snapshot.empty) {
-            console.log(`✅ No old documents found in ${collectionName}`);
-            return 0;
+        for (const category of categories) {
+            const newItems = newData[category.key] || [];
+            const oldItems = oldData[category.key] || [];
+            
+            const newMap = new Map(newItems.map(item => [item.name, item.value]));
+            const oldMap = new Map(oldItems.map(item => [item.name, item.value]));
+            
+            // Check for new items
+            for (const [name, value] of newMap) {
+                if (!oldMap.has(name)) {
+                    changes.push({
+                        type: 'added',
+                        category: category.name,
+                        emoji: category.emoji,
+                        item: name,
+                        value: value
+                    });
+                } else if (oldMap.get(name) !== value) {
+                    changes.push({
+                        type: 'changed',
+                        category: category.name,
+                        emoji: category.emoji,
+                        item: name,
+                        oldValue: oldMap.get(name),
+                        newValue: value
+                    });
+                }
+            }
+            
+            // Check for removed items
+            for (const [name, value] of oldMap) {
+                if (!newMap.has(name)) {
+                    changes.push({
+                        type: 'removed',
+                        category: category.name,
+                        emoji: category.emoji,
+                        item: name,
+                        value: value
+                    });
+                }
+            }
         }
-        
-        const batch = db.batch();
-        snapshot.docs.forEach(doc => {
-            batch.delete(doc.ref);
-        });
-        
-        await batch.commit();
-        console.log(`✅ Deleted ${snapshot.docs.length} old documents from ${collectionName}`);
-        
-        return snapshot.docs.length;
-    } catch (error) {
-        console.error(`❌ Error cleaning up ${collectionName}:`, error);
-        throw error;
-    }
-}
-
-// Function to get collection statistics
-async function getCollectionStats(collectionName) {
-    try {
-        const snapshot = await db.collection(collectionName).get();
-        const totalDocs = snapshot.size;
-        
-        if (totalDocs === 0) {
-            return { total: 0, oldest: null, newest: null };
-        }
-        
-        // Get oldest and newest documents
-        const oldestSnapshot = await db.collection(collectionName)
-            .orderBy('timestamp', 'asc')
-            .limit(1)
-            .get();
-        
-        const newestSnapshot = await db.collection(collectionName)
-            .orderBy('timestamp', 'desc')
-            .limit(1)
-            .get();
-        
-        const oldest = oldestSnapshot.docs[0]?.data().timestamp?.toDate();
-        const newest = newestSnapshot.docs[0]?.data().timestamp?.toDate();
         
         return {
-            total: totalDocs,
-            oldest: oldest ? oldest.toISOString() : null,
-            newest: newest ? newest.toISOString() : null
+            hasChanges: changes.length > 0,
+            changes: changes
         };
     } catch (error) {
-        console.error(`❌ Error getting stats for ${collectionName}:`, error);
-        return { total: 0, oldest: null, newest: null, error: error.message };
+        console.error('Error comparing stock data:', error);
+        return { hasChanges: false, changes: [] };
     }
 }
 
@@ -112,69 +110,80 @@ exports.handler = async (event, context) => {
     }
 
     try {
-        console.log('🧹 Starting daily cleanup function...');
-        const startTime = Date.now();
+        console.log('🔍 Starting stock monitoring function...');
         
-        // Get cleanup configuration from query parameters or use defaults
-        const stockHistoryDays = 1;
-        const stockChangesDays = 1;
+        // Fetch current stock data
+        const stockResponse = await fetch(`${API_BASE_URL}/stock/GetStock`);
+        if (!stockResponse.ok) {
+            throw new Error(`Stock API error: ${stockResponse.status} ${stockResponse.statusText}`);
+        }
         
-        // Get pre-cleanup statistics
-        console.log('📊 Getting pre-cleanup statistics...');
-        const preStats = {
-            stock_history: 'skipped_due_to_quota',
-            stock_changes: 'skipped_due_to_quota'
-        };
+        const newStockData = await stockResponse.json();
+        console.log('📦 Fetched new stock data successfully');
         
-        // Perform cleanup operations
-        const results = {};
-        results.stock_history_deleted = await deleteOldDocuments('stock_history', stockHistoryDays);
-        results.stock_changes_deleted = await deleteOldDocuments('stock_changes', stockChangesDays);
-
+        // Get the last stock data from Firebase
+        const lastStockSnapshot = await db.collection('stock_history')
+            .orderBy('timestamp', 'desc')
+            .limit(1)
+            .get();
         
-        // Clean up stock history (keep last 30 days by default)
-        results.stock_history_deleted = await deleteOldDocuments('stock_history', stockHistoryDays);
+        let previousStockData = null;
+        if (!lastStockSnapshot.empty) {
+            previousStockData = lastStockSnapshot.docs[0].data().stockData;
+        }
         
-        // Clean up stock changes (keep last 7 days by default)
-        results.stock_changes_deleted = await deleteOldDocuments('stock_changes', stockChangesDays);
+        // Compare stock data
+        const comparison = compareStockData(newStockData, previousStockData);
         
-        // Get post-cleanup statistics
-        console.log('📊 Getting post-cleanup statistics...');
-        const postStats = {
-            stock_history: 'skipped_due_to_quota',
-            stock_changes: 'skipped_due_to_quota'
-        };
+        // Always save current stock snapshot
+        const stockDoc = await db.collection('stock_history').add({
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            stockData: newStockData,
+            categories: {
+                seeds: newStockData.seedsStock || [],
+                gear: newStockData.gearStock || [],
+                eggs: newStockData.eggStock || [],
+                cosmetics: newStockData.cosmeticsStock || []
+            }
+        });
         
-        const executionTime = Date.now() - startTime;
-        const totalDeleted = results.stock_history_deleted + results.stock_changes_deleted;
+        let responseMessage = 'Stock data saved successfully';
         
-        console.log(`✅ Cleanup completed in ${executionTime}ms - ${totalDeleted} documents deleted`);
+        // If there are changes, save them separately
+        if (comparison.hasChanges) {
+            await db.collection('stock_changes').add({
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                changeType: 'stock_change',
+                changes: comparison.changes,
+                changeCount: comparison.changes.length
+            });
+            
+            responseMessage = `Stock updated - ${comparison.changes.length} changes detected`;
+            console.log('✅ Stock changes detected and saved:', comparison.changes.length);
+        } else {
+            console.log('🔄 No stock changes detected');
+        }
         
         return {
             statusCode: 200,
             headers,
             body: JSON.stringify({
                 success: true,
-                message: `Daily cleanup completed - ${totalDeleted} documents deleted`,
-                executionTime: `${executionTime}ms`,
+                message: responseMessage,
+                changesDetected: comparison.changes.length,
+                hasChanges: comparison.hasChanges,
                 timestamp: new Date().toISOString(),
-                configuration: {
-                    stockHistoryRetentionDays: stockHistoryDays,
-                    stockChangesRetentionDays: stockChangesDays
-                },
-                results: {
-                    documentsDeleted: results,
-                    totalDeleted: totalDeleted
-                },
-                statistics: {
-                    before: preStats,
-                    after: postStats
+                stockItemCount: {
+                    seeds: newStockData.seedsStock?.length || 0,
+                    gear: newStockData.gearStock?.length || 0,
+                    eggs: newStockData.eggStock?.length || 0,
+                    cosmetics: newStockData.cosmeticsStock?.length || 0
                 }
             })
         };
         
     } catch (error) {
-        console.error('❌ Daily cleanup error:', error);
+        console.error('❌ Stock monitoring error:', error);
         
         return {
             statusCode: 500,
