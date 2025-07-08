@@ -14,7 +14,8 @@ let firebaseApp = null;
  let notificationsEnabled = false;
 let watchedItems = new Set();
 let previousStockItems = new Set();
-
+let autoRefreshTimer = null;
+let stockChangedRecently = false;
 
 async function initializeFirebase() {
     try {
@@ -122,14 +123,35 @@ function stockDataChanged(newStockData, oldStockData) {
 
 
 // Firebase Database Functions
-async function saveCurrentStockToFirebase(stockData) {
+async function saveCurrentStockToFirebase(stockData, forceUpdate = false) {
     if (!db) return;
     
     try {
-        // Only save if stock data has actually changed
-        if (!stockDataChanged(stockData, lastStockData)) {
+        const hasChanged = stockDataChanged(stockData, lastStockData);
+        
+        // Only save if stock data has actually changed OR if it's a forced update
+        if (!hasChanged && !forceUpdate) {
             console.log('📦 Stock data unchanged, skipping save to Firebase');
             return;
+        }
+        
+        // If stock changed, set the flag and start auto-refresh timer
+        if (hasChanged) {
+            stockChangedRecently = true;
+            
+            // Clear any existing auto-refresh timer
+            if (autoRefreshTimer) {
+                clearTimeout(autoRefreshTimer);
+            }
+            
+            // Set 30-second auto-refresh timer
+            autoRefreshTimer = setTimeout(() => {
+                console.log('⏰ Auto-refreshing stock after 30 seconds due to changes');
+                fetchStock();
+                stockChangedRecently = false;
+            }, 30000);
+            
+            console.log('🔄 Stock changed - auto-refresh scheduled in 30 seconds');
         }
         
         const docData = {
@@ -299,40 +321,25 @@ function updateTimerDisplay() {
 }
 
 // Stock functions
-// Replace your existing fetchStock function with this one
-async function fetchStock() {
+async function fetchStock(forceUpdate = false) {
     try {
         stockContainer.innerHTML = '<div class="loading">Loading stock data...</div>';
         
-        // Add cache-busting parameter to ensure fresh data
-        const timestamp = Date.now();
-        const response = await fetch(`${API_BASE_URL}/stock/GetStock?_t=${timestamp}`, {
-            method: 'GET',
-            headers: {
-                'Cache-Control': 'no-cache',
-                'Pragma': 'no-cache'
-            }
-        });
-        
+        const response = await fetch(`${API_BASE_URL}/stock/GetStock`);
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
         const stockData = await response.json();
         
-        // Log the fetch
-        console.log('📦 Stock data fetched at:', new Date().toISOString());
-        console.log('📦 Raw stock data:', stockData);
-        
         // Always display the current stock data
         displayStock(stockData);
         
-        // ALWAYS save to Firebase - remove the comparison check
-        await saveCurrentStockToFirebase(stockData);
-        console.log('✅ Stock data saved to Firebase (no comparison)');
-        
         // Check for new items for notifications
-        if (typeof checkForNewItems === 'function') {
+        if (typeof window.checkForNewItems === 'function') {
             checkForNewItems(stockData);
         }
+        
+        // Save current stock snapshot to Firebase
+        await saveCurrentStockToFirebase(stockData, forceUpdate);
         
         stockTimestamp.textContent = `Last updated: ${new Date().toLocaleString()}`;
         updateStockStatus(true, `Stock data loaded successfully`);
@@ -344,10 +351,35 @@ async function fetchStock() {
         
         return stockData;
     } catch (error) {
-        console.error('❌ Error fetching stock:', error);
+        console.error('Error fetching stock:', error);
         stockContainer.innerHTML = `<div class="error">Error loading stock data: ${error.message}</div>`;
         updateStockStatus(false, `Error: ${error.message}`);
         return null;
+    }
+}
+
+// Replace the refreshAll function
+function refreshAll() {
+    // Clear any pending auto-refresh
+    if (stockRefreshTimeout) {
+        clearTimeout(stockRefreshTimeout);
+        stockRefreshTimeout = null;
+    }
+    
+    // Clear the auto-refresh timer if user manually refreshes
+    if (autoRefreshTimer) {
+        clearTimeout(autoRefreshTimer);
+        autoRefreshTimer = null;
+        stockChangedRecently = false;
+    }
+    
+    // Calculate timers and fetch stock with force update
+    calculateTimers();
+    fetchStock(true); // Force update to bypass comparison
+    
+    // Refresh history if visible
+    if (historyVisible) {
+        displayHistory();
     }
 }
 
