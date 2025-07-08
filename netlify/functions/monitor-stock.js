@@ -157,12 +157,24 @@ exports.handler = async (event, context) => {
                 changes: comparison.changes,
                 changeCount: comparison.changes.length
             });
-            
+
+           try {
+            await fetch(`${process.env.URL}/.netlify/functions/discord-stock-update`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ changes: comparison.changes })
+            });
+            } catch (discordErr) {
+            console.error('❌ Failed to send Discord update:', discordErr.message);
+            }
+
             responseMessage = `Stock updated - ${comparison.changes.length} changes detected`;
             console.log('✅ Stock changes detected and saved:', comparison.changes.length);
         } else {
             console.log('🔄 No stock changes detected');
         }
+
+        
         
         return {
             statusCode: 200,
