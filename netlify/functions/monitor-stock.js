@@ -22,7 +22,7 @@ async function initializeTables(connection) {
         await connection.execute(`
             CREATE TABLE IF NOT EXISTS stock_history (
                 id INT AUTO_INCREMENT PRIMARY KEY,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 stock_data JSON,
                 seeds_count INT DEFAULT 0,
                 gear_count INT DEFAULT 0,
@@ -35,7 +35,7 @@ async function initializeTables(connection) {
         await connection.execute(`
             CREATE TABLE IF NOT EXISTS stock_changes (
                 id INT AUTO_INCREMENT PRIMARY KEY,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                timestamp TIMESTAMP  DEFAULT CURRENT_TIMESTAMP,
                 change_type VARCHAR(50) DEFAULT 'stock_change',
                 changes JSON,
                 change_count INT DEFAULT 0
