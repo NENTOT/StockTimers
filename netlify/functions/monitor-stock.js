@@ -1,29 +1,53 @@
 // netlify/functions/monitor-stock.js
-const admin = require('firebase-admin');
+const mysql = require('mysql2/promise');
 
-// Initialize Firebase Admin (only once)
-if (!admin.apps.length) {
-    const serviceAccount = {
-        type: "service_account",
-        project_id: process.env.FIREBASE_PROJECT_ID,
-        private_key_id: process.env.FIREBASE_PRIVATE_KEY_ID,
-        private_key: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-        client_email: process.env.FIREBASE_CLIENT_EMAIL,
-        client_id: process.env.FIREBASE_CLIENT_ID,
-        auth_uri: "https://accounts.google.com/o/oauth2/auth",
-        token_uri: "https://oauth2.googleapis.com/token",
-        auth_provider_x509_cert_url: "https://www.googleapis.com/oauth2/v1/certs",
-        client_x509_cert_url: process.env.FIREBASE_CLIENT_X509_CERT_URL
-    };
+// Database connection configuration
+const dbConfig = {
+    host: process.env.DB_HOST, // from freesqldatabase.com
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME,
+    port: process.env.DB_PORT || 3306,
+    ssl: {
+        rejectUnauthorized: false
+    }
+};
 
-    admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount),
-        projectId: process.env.FIREBASE_PROJECT_ID,
-    });
-}
-
-const db = admin.firestore();
 const API_BASE_URL = 'https://grow-a-garden-api-4ses.onrender.com/api';
+
+// Initialize database tables if they don't exist
+async function initializeTables(connection) {
+    try {
+        // Create stock_history table
+        await connection.execute(`
+            CREATE TABLE IF NOT EXISTS stock_history (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                stock_data JSON,
+                seeds_count INT DEFAULT 0,
+                gear_count INT DEFAULT 0,
+                eggs_count INT DEFAULT 0,
+                cosmetics_count INT DEFAULT 0
+            )
+        `);
+
+        // Create stock_changes table
+        await connection.execute(`
+            CREATE TABLE IF NOT EXISTS stock_changes (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                change_type VARCHAR(50) DEFAULT 'stock_change',
+                changes JSON,
+                change_count INT DEFAULT 0
+            )
+        `);
+
+        console.log('✅ Database tables initialized');
+    } catch (error) {
+        console.error('❌ Error initializing tables:', error);
+        throw error;
+    }
+}
 
 // Compare stock data function
 function compareStockData(newData, oldData) {
@@ -109,8 +133,14 @@ exports.handler = async (event, context) => {
         };
     }
 
+    let connection;
+    
     try {
         console.log('🔍 Starting stock monitoring function...');
+        
+        // Create database connection
+        connection = await mysql.createConnection(dbConfig);
+        await initializeTables(connection);
         
         // Fetch current stock data
         const stockResponse = await fetch(`${API_BASE_URL}/stock/GetStock`);
@@ -121,57 +151,50 @@ exports.handler = async (event, context) => {
         const newStockData = await stockResponse.json();
         console.log('📦 Fetched new stock data successfully');
         
-        // Get the last stock data from Firebase
-        const lastStockSnapshot = await db.collection('stock_history')
-            .orderBy('timestamp', 'desc')
-            .limit(1)
-            .get();
+        // Get the last stock data from MySQL
+        const [lastStockRows] = await connection.execute(`
+            SELECT stock_data FROM stock_history 
+            ORDER BY timestamp DESC 
+            LIMIT 1
+        `);
         
         let previousStockData = null;
-        if (!lastStockSnapshot.empty) {
-            previousStockData = lastStockSnapshot.docs[0].data().stockData;
+        if (lastStockRows.length > 0) {
+            previousStockData = JSON.parse(lastStockRows[0].stock_data);
         }
         
         // Compare stock data
         const comparison = compareStockData(newStockData, previousStockData);
         
         // Always save current stock snapshot
-        const stockDoc = await db.collection('stock_history').add({
-            timestamp: admin.firestore.FieldValue.serverTimestamp(),
-            stockData: newStockData,
-            categories: {
-                seeds: newStockData.seedsStock || [],
-                gear: newStockData.gearStock || [],
-                eggs: newStockData.eggStock || [],
-                cosmetics: newStockData.cosmeticsStock || []
-            }
-        });
+        await connection.execute(`
+            INSERT INTO stock_history (stock_data, seeds_count, gear_count, eggs_count, cosmetics_count)
+            VALUES (?, ?, ?, ?, ?)
+        `, [
+            JSON.stringify(newStockData),
+            newStockData.seedsStock?.length || 0,
+            newStockData.gearStock?.length || 0,
+            newStockData.eggStock?.length || 0,
+            newStockData.cosmeticsStock?.length || 0
+        ]);
         
         let responseMessage = 'Stock data saved successfully';
         
         // If there are changes, save them separately
         if (comparison.hasChanges) {
-            await db.collection('stock_changes').add({
-                timestamp: admin.firestore.FieldValue.serverTimestamp(),
-                changeType: 'stock_change',
-                changes: comparison.changes,
-                changeCount: comparison.changes.length
-            });
-
-           await fetch(`${process.env.SITE_BASE_URL}/.netlify/functions/discord-stock-update`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ changes: comparison.changes })
-            });
-
-
+            await connection.execute(`
+                INSERT INTO stock_changes (changes, change_count)
+                VALUES (?, ?)
+            `, [
+                JSON.stringify(comparison.changes),
+                comparison.changes.length
+            ]);
+            
             responseMessage = `Stock updated - ${comparison.changes.length} changes detected`;
             console.log('✅ Stock changes detected and saved:', comparison.changes.length);
         } else {
             console.log('🔄 No stock changes detected');
         }
-
-        
         
         return {
             statusCode: 200,
@@ -204,5 +227,10 @@ exports.handler = async (event, context) => {
                 timestamp: new Date().toISOString()
             })
         };
+    } finally {
+        // Close database connection
+        if (connection) {
+            await connection.end();
+        }
     }
 };
