@@ -61,7 +61,7 @@ exports.handler = async (event, context) => {
         await connection.execute(`
             CREATE TABLE IF NOT EXISTS stock_history (
                 id INT AUTO_INCREMENT PRIMARY KEY,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                timestamp TIMESTAMP  DEFAULT CURRENT_TIMESTAMP,
                 changes JSON JSON NOT NULL,
                 change_count INT NOT NULL,
                 INDEX idx_timestamp (timestamp)
