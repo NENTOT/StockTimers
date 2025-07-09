@@ -22,68 +22,21 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
-// 🐌 SLOW AND STEADY - Quota-friendly deletion
-async function slowDelete(collectionName, maxDocs = 50) {
-    console.log(`🐌 Slow deleting ${collectionName}...`);
+// 🐌 MINIMAL OPERATIONS - One operation every 2 minutes
+async function minimalDelete(collectionName, maxOps = 5) {
+    console.log(`🐌 Minimal delete starting for ${collectionName}...`);
     
     let totalDeleted = 0;
-    let attempts = 0;
-    const maxAttempts = 10;
+    let operations = 0;
     
-    while (attempts < maxAttempts) {
+    while (operations < maxOps) {
         try {
-            // Get only a few documents at a time
-            const snapshot = await db.collection(collectionName).limit(10).get();
+            console.log(`⏳ Operation ${operations + 1}/${maxOps} - Getting 1 document...`);
             
-            if (snapshot.empty) {
-                console.log(`✅ ${collectionName} is empty (deleted ${totalDeleted} total)`);
-                break;
-            }
-
-            // Delete ONE document at a time with delays
-            for (const doc of snapshot.docs) {
-                try {
-                    await doc.ref.delete();
-                    totalDeleted++;
-                    console.log(`🗑️ Deleted 1 doc from ${collectionName} (${totalDeleted} total)`);
-                    
-                    // Long delay between each deletion
-                    await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay
-                } catch (error) {
-                    console.error(`Failed to delete doc:`, error.message);
-                    // Continue with next doc
-                }
-            }
-            
-            attempts++;
-            
-            // Long delay between batches
-            await new Promise(resolve => setTimeout(resolve, 5000)); // 5 second delay
-            
-        } catch (error) {
-            console.error(`Error in batch ${attempts}:`, error.message);
-            attempts++;
-            
-            // Even longer delay on error
-            await new Promise(resolve => setTimeout(resolve, 10000)); // 10 second delay
-        }
-    }
-    
-    return totalDeleted;
-}
-
-// 🚶 ULTRA CONSERVATIVE - One doc every 30 seconds
-async function ultraSlowDelete(collectionName) {
-    console.log(`🚶 Ultra slow deleting ${collectionName}...`);
-    
-    let totalDeleted = 0;
-    let consecutiveErrors = 0;
-    const maxErrors = 5;
-    
-    while (consecutiveErrors < maxErrors) {
-        try {
             // Get just ONE document
-            const snapshot = await db.collection(collectionName).limit(1).get();
+            const snapshot = await db.collection(collectionName)
+                .limit(1)
+                .get();
             
             if (snapshot.empty) {
                 console.log(`✅ ${collectionName} is empty (deleted ${totalDeleted} total)`);
@@ -92,65 +45,98 @@ async function ultraSlowDelete(collectionName) {
 
             // Delete the single document
             const doc = snapshot.docs[0];
+            console.log(`🗑️ Deleting document: ${doc.id}`);
+            
             await doc.ref.delete();
             totalDeleted++;
-            consecutiveErrors = 0; // Reset error counter
+            operations++;
             
-            console.log(`🗑️ Deleted 1 doc from ${collectionName} (${totalDeleted} total)`);
+            console.log(`✅ Deleted 1 doc from ${collectionName} (${totalDeleted} total)`);
             
-            // VERY long delay - 30 seconds between deletions
-            await new Promise(resolve => setTimeout(resolve, 30000));
+            // MASSIVE delay - 2 minutes between operations
+            if (operations < maxOps) {
+                console.log(`⏳ Waiting 2 minutes before next operation...`);
+                await new Promise(resolve => setTimeout(resolve, 120000)); // 2 minutes
+            }
             
         } catch (error) {
-            console.error(`Error deleting from ${collectionName}:`, error.message);
-            consecutiveErrors++;
+            console.error(`❌ Error in operation ${operations + 1}:`, error.message);
             
-            // Exponential backoff on errors
-            const delay = Math.min(60000 * Math.pow(2, consecutiveErrors), 300000); // Max 5 minutes
-            console.log(`⏳ Waiting ${delay/1000} seconds before retry...`);
-            await new Promise(resolve => setTimeout(resolve, delay));
+            if (error.code === 8) { // RESOURCE_EXHAUSTED
+                console.log(`💤 Quota exceeded - waiting 10 minutes...`);
+                await new Promise(resolve => setTimeout(resolve, 600000)); // 10 minutes
+            } else {
+                console.log(`⏳ Other error - waiting 5 minutes...`);
+                await new Promise(resolve => setTimeout(resolve, 300000)); // 5 minutes
+            }
+            
+            operations++; // Count as an operation to prevent infinite loops
         }
     }
     
     return totalDeleted;
 }
 
-// 🔍 CHECK QUOTA STATUS
-async function checkQuotaStatus() {
-    try {
-        // Try a simple read operation to test quota
-        const testQuery = await db.collection('stock_history').limit(1).get();
-        console.log('✅ Quota check passed');
-        return true;
-    } catch (error) {
-        if (error.code === 8) { // RESOURCE_EXHAUSTED
-            console.log('❌ Quota exceeded - need to wait');
-            return false;
+// 🚶‍♂️ SUPER MINIMAL - One document every 5 minutes
+async function superMinimalDelete(collectionName) {
+    console.log(`🚶‍♂️ Super minimal delete for ${collectionName}...`);
+    
+    let totalDeleted = 0;
+    let maxAttempts = 3; // Only try 3 times
+    
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            console.log(`🔍 Attempt ${attempt}/${maxAttempts} - Checking if ${collectionName} has documents...`);
+            
+            // Check if collection has any documents
+            const snapshot = await db.collection(collectionName)
+                .limit(1)
+                .get();
+            
+            if (snapshot.empty) {
+                console.log(`✅ ${collectionName} is empty`);
+                break;
+            }
+
+            // Delete ONE document
+            const doc = snapshot.docs[0];
+            console.log(`🗑️ Deleting document: ${doc.id} from ${collectionName}`);
+            
+            await doc.ref.delete();
+            totalDeleted++;
+            
+            console.log(`✅ Successfully deleted 1 document from ${collectionName}`);
+            
+            // HUGE delay - 5 minutes between attempts
+            if (attempt < maxAttempts) {
+                console.log(`💤 Waiting 5 minutes before next attempt...`);
+                await new Promise(resolve => setTimeout(resolve, 300000)); // 5 minutes
+            }
+            
+        } catch (error) {
+            console.error(`❌ Attempt ${attempt} failed:`, error.message);
+            
+            if (error.code === 8) { // RESOURCE_EXHAUSTED
+                console.log(`💤 Quota exceeded - waiting 15 minutes...`);
+                await new Promise(resolve => setTimeout(resolve, 900000)); // 15 minutes
+            }
         }
-        console.log('⚠️ Other error:', error.message);
-        return false;
     }
+    
+    return totalDeleted;
 }
 
-// 🕐 WAIT FOR QUOTA RESET
-async function waitForQuotaReset() {
-    console.log('⏳ Waiting for quota reset...');
-    
-    // Wait in 1-minute intervals, checking quota status
-    for (let i = 0; i < 60; i++) { // Wait up to 1 hour
-        await new Promise(resolve => setTimeout(resolve, 60000)); // 1 minute
-        
-        const quotaOk = await checkQuotaStatus();
-        if (quotaOk) {
-            console.log('✅ Quota appears to be reset');
-            return true;
-        }
-        
-        console.log(`⏳ Still waiting... (${i+1}/60 minutes)`);
+// 🔍 TEST QUOTA - Just check if we can read
+async function testQuota() {
+    try {
+        console.log('🔍 Testing quota with minimal read...');
+        const testQuery = await db.collection('stock_history').limit(1).get();
+        console.log('✅ Quota test passed');
+        return true;
+    } catch (error) {
+        console.error('❌ Quota test failed:', error.message);
+        return false;
     }
-    
-    console.log('⚠️ Quota still not reset after 1 hour');
-    return false;
 }
 
 exports.handler = async (event, context) => {
@@ -170,54 +156,47 @@ exports.handler = async (event, context) => {
     }
 
     try {
-        console.log('🐌 ULTRA CONSERVATIVE CLEANUP - Quota-friendly deletion');
+        console.log('🐌 MINIMAL CLEANUP - Maximum quota conservation');
         const startTime = Date.now();
 
-        // Check quota first
-        const quotaOk = await checkQuotaStatus();
+        // Test quota first
+        const quotaOk = await testQuota();
         if (!quotaOk) {
-            console.log('❌ Quota exceeded - attempting to wait for reset...');
-            const resetOk = await waitForQuotaReset();
-            if (!resetOk) {
-                return {
-                    statusCode: 429,
-                    headers,
-                    body: JSON.stringify({
-                        success: false,
-                        error: 'Quota exceeded and reset not detected',
-                        message: 'Try again later when quota resets',
-                        timestamp: new Date().toISOString()
-                    })
-                };
-            }
+            return {
+                statusCode: 429,
+                headers,
+                body: JSON.stringify({
+                    success: false,
+                    error: 'Quota exceeded before starting',
+                    message: 'Firebase quota is already exhausted. Wait and try again later.',
+                    timestamp: new Date().toISOString()
+                })
+            };
         }
 
-        // Start with the most important collections
+        // Only process the most critical collections
         const results = {};
         
-        // Priority collections (these are causing the quota issues)
-        const priorityCollections = ['stock_history', 'stock_changes'];
+        // Try stock_history first (most important)
+        console.log('🎯 Processing stock_history with minimal operations...');
+        try {
+            results.stock_history = await minimalDelete('stock_history', 3);
+        } catch (error) {
+            console.error('Failed stock_history:', error.message);
+            results.stock_history = 0;
+        }
         
-        for (const collectionName of priorityCollections) {
-            console.log(`🎯 Processing priority collection: ${collectionName}`);
-            
-            try {
-                // Try slow method first
-                let deleted = await slowDelete(collectionName);
-                
-                // If still documents remain, try ultra slow
-                if (deleted > 0) {
-                    console.log(`🚶 Switching to ultra slow for ${collectionName}`);
-                    const ultraDeleted = await ultraSlowDelete(collectionName);
-                    deleted += ultraDeleted;
-                }
-                
-                results[collectionName] = deleted;
-                
-            } catch (error) {
-                console.error(`Failed to process ${collectionName}:`, error.message);
-                results[collectionName] = 0;
-            }
+        // Wait 5 minutes before next collection
+        console.log('⏳ Waiting 5 minutes before processing stock_changes...');
+        await new Promise(resolve => setTimeout(resolve, 300000));
+        
+        // Try stock_changes
+        console.log('🎯 Processing stock_changes with minimal operations...');
+        try {
+            results.stock_changes = await minimalDelete('stock_changes', 3);
+        } catch (error) {
+            console.error('Failed stock_changes:', error.message);
+            results.stock_changes = 0;
         }
 
         const executionTime = Date.now() - startTime;
@@ -228,17 +207,17 @@ exports.handler = async (event, context) => {
             headers,
             body: JSON.stringify({
                 success: true,
-                message: 'Conservative cleanup completed',
+                message: 'Minimal cleanup completed',
                 deleted: results,
                 totalDocuments: totalDeleted,
                 executionTime: `${executionTime}ms`,
                 timestamp: new Date().toISOString(),
-                note: 'Used quota-friendly slow deletion. Run multiple times if needed.'
+                note: 'Deleted very few documents to conserve quota. Run multiple times over several hours.'
             })
         };
         
     } catch (error) {
-        console.error('💣 Cleanup failed:', error);
+        console.error('💣 Minimal cleanup failed:', error);
         return {
             statusCode: 500,
             headers,
