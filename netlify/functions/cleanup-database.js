@@ -1,34 +1,27 @@
-// netlify/functions/cleanup-database.js
+// netlify/functions/cleanup-database.js - New function needed for MySQL 5.7
 const mysql = require('mysql2/promise');
 
-// Database configuration with SSL disabled
 const dbConfig = {
     host: process.env.DB_HOST,
     port: process.env.DB_PORT || 3306,
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
     database: process.env.DB_NAME,
-    // Disable SSL - this is the key fix
     ssl: false,
-    // Connection timeout settings
     connectTimeout: 60000,
     acquireTimeout: 60000,
     timeout: 60000,
-    // Reconnection settings
     reconnect: true,
-    // Character set
     charset: 'utf8mb4'
 };
 
 exports.handler = async (event, context) => {
-    // Set CORS headers
     const headers = {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Headers': 'Content-Type',
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
     };
 
-    // Handle preflight requests
     if (event.httpMethod === 'OPTIONS') {
         return {
             statusCode: 200,
@@ -37,7 +30,6 @@ exports.handler = async (event, context) => {
         };
     }
 
-    // Only allow POST requests
     if (event.httpMethod !== 'POST') {
         return {
             statusCode: 405,
@@ -52,75 +44,38 @@ exports.handler = async (event, context) => {
     let connection;
     
     try {
-        console.log('🗑️ Starting database cleanup...');
-        
-        // Create database connection
         connection = await mysql.createConnection(dbConfig);
-        
-        // Test the connection
         await connection.ping();
-        console.log('✅ Database connection successful');
         
-        // Create the stock_history table if it doesn't exist
-        await connection.execute(`
-            CREATE TABLE IF NOT EXISTS stock_history (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                changes JSON NOT NULL,
-                change_count INT NOT NULL,
-                INDEX idx_timestamp (timestamp)
-            )
-        `);
-        console.log('✅ Table verification completed');
-        
-        // Delete records older than 7 days
-        const deleteQuery = `
+        // Delete records older than 24 hours
+        const query = `
             DELETE FROM stock_history 
-            WHERE timestamp < DATE_SUB(NOW(), INTERVAL 7 DAY)
+            WHERE timestamp < DATE_SUB(NOW(), INTERVAL 24 HOUR)
         `;
         
-        const [result] = await connection.execute(deleteQuery);
-        const deletedRecords = result.affectedRows;
+        const [result] = await connection.execute(query);
         
-        console.log(`✅ Database cleanup completed: ${deletedRecords} records deleted`);
-        
-        // Get current record count
-        const [countResult] = await connection.execute(
-            'SELECT COUNT(*) as count FROM stock_history'
-        );
-        const remainingRecords = countResult[0].count;
-        
-        console.log(`📊 Remaining records in database: ${remainingRecords}`);
+        console.log(`✅ Database cleanup completed: ${result.affectedRows} records deleted`);
         
         return {
             statusCode: 200,
             headers,
             body: JSON.stringify({
                 success: true,
-                message: 'Database cleanup completed successfully',
-                deletedRecords: deletedRecords,
-                remainingRecords: remainingRecords,
-                timestamp: new Date().toISOString()
+                message: 'Database cleanup completed',
+                deletedRecords: result.affectedRows
             })
         };
         
     } catch (error) {
-        console.error('❌ Database cleanup error:', error);
-        
-        // More detailed error logging
-        console.error('Error details:', {
-            code: error.code,
-            errno: error.errno,
-            sqlMessage: error.sqlMessage,
-            sqlState: error.sqlState
-        });
+        console.error('❌ Error during database cleanup:', error);
         
         return {
             statusCode: 500,
             headers,
             body: JSON.stringify({
                 success: false,
-                error: error.message || 'Database cleanup failed',
+                error: error.message || 'Cleanup failed',
                 details: {
                     code: error.code,
                     errno: error.errno,
@@ -130,11 +85,9 @@ exports.handler = async (event, context) => {
         };
         
     } finally {
-        // Always close the connection
         if (connection) {
             try {
                 await connection.end();
-                console.log('🔌 Database connection closed');
             } catch (closeError) {
                 console.error('Error closing connection:', closeError);
             }

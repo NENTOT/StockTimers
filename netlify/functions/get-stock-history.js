@@ -1,4 +1,4 @@
-// netlify/functions/get-stock-history.js
+// netlify/functions/get-stock-history.js - Fixed for MySQL 5.7
 const mysql = require('mysql2/promise');
 
 // Database configuration with SSL disabled
@@ -8,31 +8,21 @@ const dbConfig = {
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
     database: process.env.DB_NAME,
-    // Disable SSL - this is the key fix
     ssl: false,
-    // Alternative: if you need SSL but with self-signed certificates
-    // ssl: {
-    //     rejectUnauthorized: false
-    // },
-    // Connection timeout settings
     connectTimeout: 60000,
     acquireTimeout: 60000,
     timeout: 60000,
-    // Reconnection settings
     reconnect: true,
-    // Character set
     charset: 'utf8mb4'
 };
 
 exports.handler = async (event, context) => {
-    // Set CORS headers
     const headers = {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Headers': 'Content-Type',
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
     };
 
-    // Handle preflight requests
     if (event.httpMethod === 'OPTIONS') {
         return {
             statusCode: 200,
@@ -44,34 +34,27 @@ exports.handler = async (event, context) => {
     let connection;
     
     try {
-        // Parse query parameters
         const limit = event.queryStringParameters?.limit || 20;
-        const parsedLimit = Math.min(Math.max(parseInt(limit), 1), 100); // Limit between 1-100
+        const parsedLimit = Math.min(Math.max(parseInt(limit), 1), 100);
 
         console.log(`Fetching stock history with limit: ${parsedLimit}`);
         
-        // Create database connection
         connection = await mysql.createConnection(dbConfig);
-        
-        // Test the connection
         await connection.ping();
         console.log('✅ Database connection successful');
         
-        // Create the stock_history table if it doesn't exist
+        // Fixed table creation for MySQL 5.7
         await connection.execute(`
-             CREATE TABLE IF NOT EXISTS stock_history (
+            CREATE TABLE IF NOT EXISTS stock_history (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                stock_data JSON,
-                seeds_count INT DEFAULT 0,
-                gear_count INT DEFAULT 0,
-                eggs_count INT DEFAULT 0,
-                cosmetics_count INT DEFAULT 0
+                changes TEXT NOT NULL,
+                change_count INT NOT NULL,
+                KEY idx_timestamp (timestamp)
             )
         `);
         console.log('✅ Table verification completed');
         
-        // Query to get stock history
         const query = `
             SELECT 
                 id,
@@ -85,7 +68,7 @@ exports.handler = async (event, context) => {
         
         const [rows] = await connection.execute(query, [parsedLimit]);
         
-        // Parse the changes JSON for each row
+        // Parse the changes TEXT field as JSON
         const history = rows.map(row => ({
             id: row.id,
             timestamp: row.timestamp,
@@ -108,17 +91,6 @@ exports.handler = async (event, context) => {
     } catch (error) {
         console.error('❌ Database error:', error);
         
-        // More detailed error logging
-        if (error.code) {
-            console.error('Error code:', error.code);
-        }
-        if (error.errno) {
-            console.error('Error number:', error.errno);
-        }
-        if (error.sqlMessage) {
-            console.error('SQL message:', error.sqlMessage);
-        }
-        
         return {
             statusCode: 500,
             headers,
@@ -134,7 +106,6 @@ exports.handler = async (event, context) => {
         };
         
     } finally {
-        // Always close the connection
         if (connection) {
             try {
                 await connection.end();

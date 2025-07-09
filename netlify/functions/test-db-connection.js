@@ -1,34 +1,27 @@
-// netlify/functions/test-db-connection.js
-const mysql = require('mysql2/promise');
+// netlify/functions/test-db-connection.js - Fixed for MySQL 5.7
+const mysql2 = require('mysql2/promise');
 
-// Database configuration with SSL disabled
 const dbConfig = {
     host: process.env.DB_HOST,
     port: process.env.DB_PORT || 3306,
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
     database: process.env.DB_NAME,
-    // Disable SSL - this is the key fix
     ssl: false,
-    // Connection timeout settings
     connectTimeout: 60000,
     acquireTimeout: 60000,
     timeout: 60000,
-    // Reconnection settings
     reconnect: true,
-    // Character set
     charset: 'utf8mb4'
 };
 
 exports.handler = async (event, context) => {
-    // Set CORS headers
     const headers = {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Headers': 'Content-Type',
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
     };
 
-    // Handle preflight requests
     if (event.httpMethod === 'OPTIONS') {
         return {
             statusCode: 200,
@@ -46,30 +39,25 @@ exports.handler = async (event, context) => {
         console.log('User:', process.env.DB_USER);
         console.log('Database:', process.env.DB_NAME);
         
-        // Create database connection
-        connection = await mysql.createConnection(dbConfig);
-        
-        // Test the connection with a simple query
+        connection = await mysql2.createConnection(dbConfig);
         await connection.ping();
         console.log('✅ Database ping successful');
         
-        // Test a simple query
         const [rows] = await connection.execute('SELECT 1 as test');
         console.log('✅ Test query successful:', rows);
         
-        // Create the stock_history table if it doesn't exist
+        // Fixed table creation for MySQL 5.7 - removed duplicate JSON keyword
         await connection.execute(`
             CREATE TABLE IF NOT EXISTS stock_history (
                 id INT AUTO_INCREMENT PRIMARY KEY,
-                timestamp TIMESTAMP  DEFAULT CURRENT_TIMESTAMP,
-                changes JSON JSON NOT NULL,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                changes TEXT NOT NULL,
                 change_count INT NOT NULL,
-                INDEX idx_timestamp (timestamp)
+                KEY idx_timestamp (timestamp)
             )
         `);
         console.log('✅ Table verification completed');
         
-        // Check if the stock_history table exists
         const [tables] = await connection.execute(
             "SHOW TABLES LIKE 'stock_history'"
         );
@@ -104,15 +92,6 @@ exports.handler = async (event, context) => {
     } catch (error) {
         console.error('❌ Database connection failed:', error);
         
-        // More detailed error logging
-        console.error('Error details:', {
-            code: error.code,
-            errno: error.errno,
-            sqlMessage: error.sqlMessage,
-            sqlState: error.sqlState,
-            fatal: error.fatal
-        });
-        
         return {
             statusCode: 500,
             headers,
@@ -130,7 +109,6 @@ exports.handler = async (event, context) => {
         };
         
     } finally {
-        // Always close the connection
         if (connection) {
             try {
                 await connection.end();
