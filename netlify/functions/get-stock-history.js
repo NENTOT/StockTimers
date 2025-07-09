@@ -1,7 +1,7 @@
 // netlify/functions/get-stock-history.js - Fixed for MySQL 5.7
 const mysql = require('mysql2/promise');
 
-// Database configuration with SSL disabled
+// Database configuration with SSL disabled - Fixed for MySQL2
 const dbConfig = {
     host: process.env.DB_HOST,
     port: process.env.DB_PORT || 3306,
@@ -10,9 +10,6 @@ const dbConfig = {
     database: process.env.DB_NAME,
     ssl: false,
     connectTimeout: 60000,
-    acquireTimeout: 60000,
-    timeout: 60000,
-    reconnect: true,
     charset: 'utf8mb4'
 };
 

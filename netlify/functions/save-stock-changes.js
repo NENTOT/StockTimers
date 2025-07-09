@@ -1,5 +1,4 @@
-// netlify/functions/test-db-connection.js - Fixed for MySQL 5.7
-const mysql2 = require('mysql2/promise');
+const mysql = require('mysql2/promise');
 
 const dbConfig = {
     host: process.env.DB_HOST,
@@ -9,9 +8,6 @@ const dbConfig = {
     database: process.env.DB_NAME,
     ssl: false,
     connectTimeout: 60000,
-    acquireTimeout: 60000,
-    timeout: 60000,
-    reconnect: true,
     charset: 'utf8mb4'
 };
 
@@ -30,23 +26,38 @@ exports.handler = async (event, context) => {
         };
     }
 
+    if (event.httpMethod !== 'POST') {
+        return {
+            statusCode: 405,
+            headers,
+            body: JSON.stringify({
+                success: false,
+                error: 'Method not allowed'
+            })
+        };
+    }
+
     let connection;
     
     try {
-        console.log('🔍 Testing database connection...');
-        console.log('Host:', process.env.DB_HOST);
-        console.log('Port:', process.env.DB_PORT || 3306);
-        console.log('User:', process.env.DB_USER);
-        console.log('Database:', process.env.DB_NAME);
+        const body = JSON.parse(event.body);
+        const { changes, changeCount } = body;
         
-        connection = await mysql2.createConnection(dbConfig);
+        if (!changes || !Array.isArray(changes) || changes.length === 0) {
+            return {
+                statusCode: 400,
+                headers,
+                body: JSON.stringify({
+                    success: false,
+                    error: 'Invalid changes data'
+                })
+            };
+        }
+
+        connection = await mysql.createConnection(dbConfig);
         await connection.ping();
-        console.log('✅ Database ping successful');
         
-        const [rows] = await connection.execute('SELECT 1 as test');
-        console.log('✅ Test query successful:', rows);
-        
-        // Fixed table creation for MySQL 5.7 - removed duplicate JSON keyword
+        // Create table if it doesn't exist
         await connection.execute(`
             CREATE TABLE IF NOT EXISTS stock_history (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -56,54 +67,44 @@ exports.handler = async (event, context) => {
                 KEY idx_timestamp (timestamp)
             )
         `);
-        console.log('✅ Table verification completed');
         
-        const [tables] = await connection.execute(
-            "SHOW TABLES LIKE 'stock_history'"
-        );
+        // Insert the changes as JSON string in TEXT field
+        const query = `
+            INSERT INTO stock_history (changes, change_count) 
+            VALUES (?, ?)
+        `;
         
-        const tableExists = tables.length > 0;
-        console.log('📊 Stock history table exists:', tableExists);
+        const [result] = await connection.execute(query, [
+            JSON.stringify(changes),
+            changeCount
+        ]);
         
-        let rowCount = 0;
-        if (tableExists) {
-            const [countResult] = await connection.execute(
-                'SELECT COUNT(*) as count FROM stock_history'
-            );
-            rowCount = countResult[0].count;
-            console.log('📈 Records in stock_history:', rowCount);
-        }
+        console.log(`✅ Stock changes saved: ${changeCount} changes, ID: ${result.insertId}`);
         
         return {
             statusCode: 200,
             headers,
             body: JSON.stringify({
                 success: true,
-                message: 'Database connection successful',
-                details: {
-                    connected: true,
-                    tableExists: tableExists,
-                    recordCount: rowCount,
-                    timestamp: new Date().toISOString()
-                }
+                message: 'Changes saved successfully',
+                id: result.insertId,
+                changeCount: changeCount
             })
         };
         
     } catch (error) {
-        console.error('❌ Database connection failed:', error);
+        console.error('❌ Error saving stock changes:', error);
         
         return {
             statusCode: 500,
             headers,
             body: JSON.stringify({
                 success: false,
-                error: error.message || 'Database connection failed',
+                error: error.message || 'Failed to save changes',
                 details: {
                     code: error.code,
                     errno: error.errno,
-                    sqlMessage: error.sqlMessage,
-                    sqlState: error.sqlState,
-                    fatal: error.fatal
+                    sqlMessage: error.sqlMessage
                 }
             })
         };
@@ -112,7 +113,6 @@ exports.handler = async (event, context) => {
         if (connection) {
             try {
                 await connection.end();
-                console.log('🔌 Database connection closed');
             } catch (closeError) {
                 console.error('Error closing connection:', closeError);
             }
