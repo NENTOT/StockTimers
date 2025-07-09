@@ -7,32 +7,12 @@ const dbConfig = {
     password: process.env.DB_PASSWORD,
     database: process.env.DB_NAME,
     port: process.env.DB_PORT || 3306,
-    // Try different SSL configurations based on your MySQL provider
-    ssl: (() => {
-        if (process.env.DB_SSL === 'false') return false;
-        if (process.env.DB_SSL === 'true') return { rejectUnauthorized: false };
-        // Auto-detect: if host contains certain providers, assume SSL is needed
-        if (process.env.DB_HOST && (
-            process.env.DB_HOST.includes('amazonaws.com') ||
-            process.env.DB_HOST.includes('digitalocean.com') ||
-            process.env.DB_HOST.includes('planetscale.com') ||
-            process.env.DB_HOST.includes('railway.app')
-        )) {
-            return { rejectUnauthorized: false };
-        }
-        return false; // Default to no SSL for local/basic MySQL
-    })(),
-    
-    // Additional connection options that might help
-    connectTimeout: 30000, // 30 seconds
-    acquireTimeout: 30000, // 30 seconds
-    timeout: 30000, // 30 seconds
-    
-    // MySQL specific options
-    authPlugins: {
-        mysql_native_password: () => () => Buffer.alloc(0),
-        mysql_clear_password: () => () => Buffer.alloc(0)
-    }
+    // Remove SSL configuration since the server doesn't support it
+    ssl: false,
+    // Add connection timeout and other helpful options
+    connectTimeout: 30000,
+    acquireTimeout: 30000,
+    timeout: 30000
 };
 
 exports.handler = async (event, context) => {
@@ -48,21 +28,19 @@ exports.handler = async (event, context) => {
     }
 
     let connection;
-    
     try {
         console.log('Attempting to connect to MySQL database...');
         console.log('Host:', process.env.DB_HOST);
         console.log('User:', process.env.DB_USER);
         console.log('Database:', process.env.DB_NAME);
         console.log('Port:', process.env.DB_PORT || 3306);
-        console.log('SSL:', process.env.DB_SSL === 'true' ? 'enabled' : 'disabled');
+        console.log('SSL: disabled');
         
         connection = await mysql.createConnection(dbConfig);
         
-        console.log('Connected successfully, testing query...');
+        console.log('Connection established, testing query...');
         const [rows] = await connection.execute('SELECT 1 as test');
-        
-        console.log('Query executed successfully:', rows);
+        console.log('Test query successful:', rows);
         
         return {
             statusCode: 200,
@@ -83,18 +61,16 @@ exports.handler = async (event, context) => {
             body: JSON.stringify({
                 success: false,
                 error: error.message,
-                code: error.code,
-                errno: error.errno,
-                sqlState: error.sqlState
+                code: error.code || 'UNKNOWN_ERROR'
             })
         };
     } finally {
         if (connection) {
             try {
                 await connection.end();
-                console.log('Connection closed');
-            } catch (closeError) {
-                console.error('Error closing connection:', closeError);
+                console.log('Database connection closed');
+            } catch (error) {
+                console.error('Error closing connection:', error);
             }
         }
     }
