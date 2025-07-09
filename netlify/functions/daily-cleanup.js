@@ -22,78 +22,138 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
-// 🔥 Quick and dirty delete with timeout protection
-async function quickNuke(collectionName, maxTime = 8000) {
-    console.log(`🔥 Quick nuking ${collectionName}...`);
+// 🐌 SLOW AND STEADY - Quota-friendly deletion
+async function slowDelete(collectionName, maxDocs = 50) {
+    console.log(`🐌 Slow deleting ${collectionName}...`);
     
-    const startTime = Date.now();
     let totalDeleted = 0;
+    let attempts = 0;
+    const maxAttempts = 10;
     
-    try {
-        while (Date.now() - startTime < maxTime) {
-            const snapshot = await db.collection(collectionName)
-                .limit(200)
-                .get();
+    while (attempts < maxAttempts) {
+        try {
+            // Get only a few documents at a time
+            const snapshot = await db.collection(collectionName).limit(10).get();
             
             if (snapshot.empty) {
-                console.log(`✅ ${collectionName} empty - deleted ${totalDeleted}`);
+                console.log(`✅ ${collectionName} is empty (deleted ${totalDeleted} total)`);
                 break;
             }
 
-            // Delete batch
-            const batch = db.batch();
-            snapshot.docs.forEach(doc => batch.delete(doc.ref));
-            await batch.commit();
+            // Delete ONE document at a time with delays
+            for (const doc of snapshot.docs) {
+                try {
+                    await doc.ref.delete();
+                    totalDeleted++;
+                    console.log(`🗑️ Deleted 1 doc from ${collectionName} (${totalDeleted} total)`);
+                    
+                    // Long delay between each deletion
+                    await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay
+                } catch (error) {
+                    console.error(`Failed to delete doc:`, error.message);
+                    // Continue with next doc
+                }
+            }
             
-            totalDeleted += snapshot.docs.length;
-            console.log(`💥 Nuked ${snapshot.docs.length} from ${collectionName} (Total: ${totalDeleted})`);
+            attempts++;
+            
+            // Long delay between batches
+            await new Promise(resolve => setTimeout(resolve, 5000)); // 5 second delay
+            
+        } catch (error) {
+            console.error(`Error in batch ${attempts}:`, error.message);
+            attempts++;
+            
+            // Even longer delay on error
+            await new Promise(resolve => setTimeout(resolve, 10000)); // 10 second delay
         }
-    } catch (error) {
-        console.error(`Error nuking ${collectionName}:`, error.message);
     }
     
     return totalDeleted;
 }
 
-// 🔥 Fast parallel delete
-async function parallelNuke(collections, timeLimit = 20000) {
-    console.log('🚨 PARALLEL NUKE STARTING');
+// 🚶 ULTRA CONSERVATIVE - One doc every 30 seconds
+async function ultraSlowDelete(collectionName) {
+    console.log(`🚶 Ultra slow deleting ${collectionName}...`);
     
-    const results = {};
-    const startTime = Date.now();
+    let totalDeleted = 0;
+    let consecutiveErrors = 0;
+    const maxErrors = 5;
     
-    const deletePromises = collections.map(async (collectionName) => {
+    while (consecutiveErrors < maxErrors) {
         try {
-            const deleted = await quickNuke(collectionName, timeLimit / collections.length);
-            results[collectionName] = deleted;
-            return deleted;
+            // Get just ONE document
+            const snapshot = await db.collection(collectionName).limit(1).get();
+            
+            if (snapshot.empty) {
+                console.log(`✅ ${collectionName} is empty (deleted ${totalDeleted} total)`);
+                break;
+            }
+
+            // Delete the single document
+            const doc = snapshot.docs[0];
+            await doc.ref.delete();
+            totalDeleted++;
+            consecutiveErrors = 0; // Reset error counter
+            
+            console.log(`🗑️ Deleted 1 doc from ${collectionName} (${totalDeleted} total)`);
+            
+            // VERY long delay - 30 seconds between deletions
+            await new Promise(resolve => setTimeout(resolve, 30000));
+            
         } catch (error) {
-            console.error(`Failed ${collectionName}:`, error.message);
-            results[collectionName] = 0;
-            return 0;
+            console.error(`Error deleting from ${collectionName}:`, error.message);
+            consecutiveErrors++;
+            
+            // Exponential backoff on errors
+            const delay = Math.min(60000 * Math.pow(2, consecutiveErrors), 300000); // Max 5 minutes
+            console.log(`⏳ Waiting ${delay/1000} seconds before retry...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
         }
-    });
+    }
     
-    // Race against time
-    const timeoutPromise = new Promise((resolve) => {
-        setTimeout(() => {
-            console.log('⏰ TIME LIMIT REACHED');
-            resolve('TIMEOUT');
-        }, timeLimit);
-    });
+    return totalDeleted;
+}
+
+// 🔍 CHECK QUOTA STATUS
+async function checkQuotaStatus() {
+    try {
+        // Try a simple read operation to test quota
+        const testQuery = await db.collection('stock_history').limit(1).get();
+        console.log('✅ Quota check passed');
+        return true;
+    } catch (error) {
+        if (error.code === 8) { // RESOURCE_EXHAUSTED
+            console.log('❌ Quota exceeded - need to wait');
+            return false;
+        }
+        console.log('⚠️ Other error:', error.message);
+        return false;
+    }
+}
+
+// 🕐 WAIT FOR QUOTA RESET
+async function waitForQuotaReset() {
+    console.log('⏳ Waiting for quota reset...');
     
-    await Promise.race([
-        Promise.all(deletePromises),
-        timeoutPromise
-    ]);
+    // Wait in 1-minute intervals, checking quota status
+    for (let i = 0; i < 60; i++) { // Wait up to 1 hour
+        await new Promise(resolve => setTimeout(resolve, 60000)); // 1 minute
+        
+        const quotaOk = await checkQuotaStatus();
+        if (quotaOk) {
+            console.log('✅ Quota appears to be reset');
+            return true;
+        }
+        
+        console.log(`⏳ Still waiting... (${i+1}/60 minutes)`);
+    }
     
-    return results;
+    console.log('⚠️ Quota still not reset after 1 hour');
+    return false;
 }
 
 exports.handler = async (event, context) => {
-    // Set timeout to prevent 502 errors
-    context.callbackWaitsForEmptyEventLoop = false;
-    
     const headers = {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Headers': 'Content-Type',
@@ -109,83 +169,83 @@ exports.handler = async (event, context) => {
         };
     }
 
-    const startTime = Date.now();
-    
     try {
-        console.log('🚨 EMERGENCY CLEANUP - FAST MODE');
-        
-        // Priority collections to delete first
-        const priorityCollections = [
-            'stock_history',
-            'stock_changes'
-        ];
-        
-        // Secondary collections
-        const secondaryCollections = [
-            'users',
-            'portfolios', 
-            'transactions',
-            'watchlists',
-            'notifications',
-            'analytics',
-            'logs',
-            'sessions',
-            'cache',
-            'settings'
-        ];
-        
-        let results = {};
-        
-        // Phase 1: Delete priority collections (fast)
-        console.log('🔥 Phase 1: Priority deletion...');
-        const priorityResults = await parallelNuke(priorityCollections, 15000);
-        results = { ...results, ...priorityResults };
-        
-        // Phase 2: Quick check on remaining time
-        const elapsed = Date.now() - startTime;
-        const remainingTime = 25000 - elapsed; // Leave 5s buffer
-        
-        if (remainingTime > 5000) {
-            console.log('🔥 Phase 2: Secondary cleanup...');
-            const secondaryResults = await parallelNuke(secondaryCollections, remainingTime);
-            results = { ...results, ...secondaryResults };
-        } else {
-            console.log('⏰ Skipping secondary cleanup - not enough time');
+        console.log('🐌 ULTRA CONSERVATIVE CLEANUP - Quota-friendly deletion');
+        const startTime = Date.now();
+
+        // Check quota first
+        const quotaOk = await checkQuotaStatus();
+        if (!quotaOk) {
+            console.log('❌ Quota exceeded - attempting to wait for reset...');
+            const resetOk = await waitForQuotaReset();
+            if (!resetOk) {
+                return {
+                    statusCode: 429,
+                    headers,
+                    body: JSON.stringify({
+                        success: false,
+                        error: 'Quota exceeded and reset not detected',
+                        message: 'Try again later when quota resets',
+                        timestamp: new Date().toISOString()
+                    })
+                };
+            }
         }
+
+        // Start with the most important collections
+        const results = {};
         
+        // Priority collections (these are causing the quota issues)
+        const priorityCollections = ['stock_history', 'stock_changes'];
+        
+        for (const collectionName of priorityCollections) {
+            console.log(`🎯 Processing priority collection: ${collectionName}`);
+            
+            try {
+                // Try slow method first
+                let deleted = await slowDelete(collectionName);
+                
+                // If still documents remain, try ultra slow
+                if (deleted > 0) {
+                    console.log(`🚶 Switching to ultra slow for ${collectionName}`);
+                    const ultraDeleted = await ultraSlowDelete(collectionName);
+                    deleted += ultraDeleted;
+                }
+                
+                results[collectionName] = deleted;
+                
+            } catch (error) {
+                console.error(`Failed to process ${collectionName}:`, error.message);
+                results[collectionName] = 0;
+            }
+        }
+
         const executionTime = Date.now() - startTime;
         const totalDeleted = Object.values(results).reduce((sum, count) => sum + count, 0);
-        
-        console.log(`💀 CLEANUP COMPLETE - ${totalDeleted} documents deleted in ${executionTime}ms`);
-        
+
         return {
             statusCode: 200,
             headers,
             body: JSON.stringify({
                 success: true,
-                message: '💀 EMERGENCY CLEANUP COMPLETE',
+                message: 'Conservative cleanup completed',
                 deleted: results,
                 totalDocuments: totalDeleted,
                 executionTime: `${executionTime}ms`,
                 timestamp: new Date().toISOString(),
-                note: 'Optimized for Netlify function limits'
+                note: 'Used quota-friendly slow deletion. Run multiple times if needed.'
             })
         };
         
     } catch (error) {
-        console.error('💣 CLEANUP ERROR:', error);
-        
-        const executionTime = Date.now() - startTime;
-        
+        console.error('💣 Cleanup failed:', error);
         return {
-            statusCode: 200, // Return 200 even on error to avoid 502
+            statusCode: 500,
             headers,
             body: JSON.stringify({
                 success: false,
                 error: error.message,
-                executionTime: `${executionTime}ms`,
-                timestamp: new Date().toISOString(),
-                note: 'Partial cleanup may have occurred'
+                timestamp: new Date().toISOString()
             })
         };
     }
