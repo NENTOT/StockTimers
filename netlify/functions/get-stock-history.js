@@ -57,6 +57,18 @@ exports.handler = async (event, context) => {
         await connection.ping();
         console.log('✅ Database connection successful');
         
+        // Create the stock_history table if it doesn't exist
+        await connection.execute(`
+            CREATE TABLE IF NOT EXISTS stock_history (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                changes JSON NOT NULL,
+                change_count INT NOT NULL,
+                INDEX idx_timestamp (timestamp)
+            )
+        `);
+        console.log('✅ Table verification completed');
+        
         // Query to get stock history
         const query = `
             SELECT 

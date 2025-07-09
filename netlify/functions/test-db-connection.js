@@ -57,6 +57,18 @@ exports.handler = async (event, context) => {
         const [rows] = await connection.execute('SELECT 1 as test');
         console.log('✅ Test query successful:', rows);
         
+        // Create the stock_history table if it doesn't exist
+        await connection.execute(`
+            CREATE TABLE IF NOT EXISTS stock_history (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                changes JSON JSON NOT NULL,
+                change_count INT NOT NULL,
+                INDEX idx_timestamp (timestamp)
+            )
+        `);
+        console.log('✅ Table verification completed');
+        
         // Check if the stock_history table exists
         const [tables] = await connection.execute(
             "SHOW TABLES LIKE 'stock_history'"

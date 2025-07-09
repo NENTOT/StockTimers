@@ -1,4 +1,4 @@
-// netlify/functions/cleanup-database.js
+// netlify/functions/init-database.js
 const mysql = require('mysql2/promise');
 
 // Database configuration with SSL disabled
@@ -37,22 +37,10 @@ exports.handler = async (event, context) => {
         };
     }
 
-    // Only allow POST requests
-    if (event.httpMethod !== 'POST') {
-        return {
-            statusCode: 405,
-            headers,
-            body: JSON.stringify({
-                success: false,
-                error: 'Method not allowed'
-            })
-        };
-    }
-
     let connection;
     
     try {
-        console.log('🗑️ Starting database cleanup...');
+        console.log('🚀 Initializing database...');
         
         // Create database connection
         connection = await mysql.createConnection(dbConfig);
@@ -61,7 +49,14 @@ exports.handler = async (event, context) => {
         await connection.ping();
         console.log('✅ Database connection successful');
         
-        // Create the stock_history table if it doesn't exist
+        // Drop existing table if it exists (use with caution!)
+        const dropTable = event.queryStringParameters?.drop === 'true';
+        if (dropTable) {
+            await connection.execute('DROP TABLE IF EXISTS stock_history');
+            console.log('🗑️ Existing table dropped');
+        }
+        
+        // Create the stock_history table
         await connection.execute(`
             CREATE TABLE IF NOT EXISTS stock_history (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -71,56 +66,64 @@ exports.handler = async (event, context) => {
                 INDEX idx_timestamp (timestamp)
             )
         `);
-        console.log('✅ Table verification completed');
+        console.log('✅ Table created successfully');
         
-        // Delete records older than 7 days
-        const deleteQuery = `
-            DELETE FROM stock_history 
-            WHERE timestamp < DATE_SUB(NOW(), INTERVAL 7 DAY)
-        `;
+        // Verify table structure
+        const [tableInfo] = await connection.execute('DESCRIBE stock_history');
+        console.log('📊 Table structure:', tableInfo);
         
-        const [result] = await connection.execute(deleteQuery);
-        const deletedRecords = result.affectedRows;
+        // Check if table is empty
+        const [countResult] = await connection.execute('SELECT COUNT(*) as count FROM stock_history');
+        const recordCount = countResult[0].count;
         
-        console.log(`✅ Database cleanup completed: ${deletedRecords} records deleted`);
+        // Insert a test record if table is empty
+        if (recordCount === 0) {
+            const testChanges = [
+                {
+                    type: 'test',
+                    category: 'System',
+                    emoji: '🔧',
+                    item: 'Database initialization',
+                    value: 'Test record'
+                }
+            ];
+            
+            await connection.execute(
+                'INSERT INTO stock_history (changes, change_count) VALUES (?, ?)',
+                [JSON.stringify(testChanges), 1]
+            );
+            console.log('✅ Test record inserted');
+        }
         
-        // Get current record count
-        const [countResult] = await connection.execute(
-            'SELECT COUNT(*) as count FROM stock_history'
-        );
-        const remainingRecords = countResult[0].count;
-        
-        console.log(`📊 Remaining records in database: ${remainingRecords}`);
+        // Get final record count
+        const [finalCount] = await connection.execute('SELECT COUNT(*) as count FROM stock_history');
+        const finalRecordCount = finalCount[0].count;
         
         return {
             statusCode: 200,
             headers,
             body: JSON.stringify({
                 success: true,
-                message: 'Database cleanup completed successfully',
-                deletedRecords: deletedRecords,
-                remainingRecords: remainingRecords,
-                timestamp: new Date().toISOString()
+                message: 'Database initialized successfully',
+                details: {
+                    tableCreated: true,
+                    recordCount: finalRecordCount,
+                    tableDropped: dropTable,
+                    tableStructure: tableInfo,
+                    timestamp: new Date().toISOString()
+                }
             })
         };
         
     } catch (error) {
-        console.error('❌ Database cleanup error:', error);
-        
-        // More detailed error logging
-        console.error('Error details:', {
-            code: error.code,
-            errno: error.errno,
-            sqlMessage: error.sqlMessage,
-            sqlState: error.sqlState
-        });
+        console.error('❌ Database initialization failed:', error);
         
         return {
             statusCode: 500,
             headers,
             body: JSON.stringify({
                 success: false,
-                error: error.message || 'Database cleanup failed',
+                error: error.message || 'Database initialization failed',
                 details: {
                     code: error.code,
                     errno: error.errno,
