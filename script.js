@@ -65,8 +65,8 @@ async function testDatabaseConnection() {
 }
 
 // Database Functions - Now using REST API calls to Netlify functions
-async function saveStockChangeToDatabase(changes, stockData) {
-    if (!databaseConnected || !changes || changes.length === 0 || !stockData) return;
+async function saveStockChangeToDatabase(changes) {
+    if (!databaseConnected || !changes || changes.length === 0) return;
     
     try {
         const response = await fetch(`${DATABASE_API_URL}/save-stock-changes`, {
@@ -76,21 +76,19 @@ async function saveStockChangeToDatabase(changes, stockData) {
             },
             body: JSON.stringify({
                 changes: changes,
-                changeCount: changes.length,
-                stockData: stockData // Now includes full stock data
+                changeCount: changes.length
             })
         });
 
         const data = await response.json();
         
         if (data.success) {
-            console.log('✅ Stock data saved to database:', changes.length, 'changes');
-            console.log('📊 Stock counts - Seeds:', data.stockCounts.seeds, 'Gear:', data.stockCounts.gear, 'Eggs:', data.stockCounts.eggs, 'Cosmetics:', data.stockCounts.cosmetics);
+            console.log('✅ Stock changes saved to database:', changes.length, 'changes');
         } else {
-            throw new Error(data.error || 'Failed to save stock data');
+            throw new Error(data.error || 'Failed to save changes');
         }
     } catch (error) {
-        console.error('❌ Error saving stock data to database:', error);
+        console.error('❌ Error saving changes to database:', error);
     }
 }
 
@@ -344,16 +342,10 @@ async function displayHistory() {
 
             const date = new Date(entry.timestamp).toLocaleString();
             const changeCount = changedItems.length;
-            
-            // Show stock counts if available
-            const stockCounts = entry.seedsCount !== undefined ? 
-                `📊 Seeds: ${entry.seedsCount} | Gear: ${entry.gearCount} | Eggs: ${entry.eggsCount} | Cosmetics: ${entry.cosmeticsCount}` : 
-                '';
 
             html += `
                 <div class="history-item">
                     <div class="history-timestamp">${date} (${changeCount} changes)</div>
-                    ${stockCounts ? `<div class="history-stock-counts">${stockCounts}</div>` : ''}
                     <div class="history-changes">
             `;
 
@@ -376,47 +368,6 @@ async function displayHistory() {
     }
 }
 
-async function getCurrentStockFromDatabase() {
-    if (!databaseConnected) return null;
-    
-    try {
-        const response = await fetch(`${DATABASE_API_URL}/get-current-stock`);
-        const data = await response.json();
-        
-        if (data.success) {
-            return data.stockData;
-        } else {
-            throw new Error(data.error || 'Failed to fetch current stock');
-        }
-    } catch (error) {
-        console.error('❌ Error fetching current stock from database:', error);
-        return null;
-    }
-}
-
-async function getStockHistoryByDate(startDate, endDate) {
-    if (!databaseConnected) return [];
-    
-    try {
-        const params = new URLSearchParams({
-            startDate: startDate.toISOString(),
-            endDate: endDate.toISOString()
-        });
-        
-        const response = await fetch(`${DATABASE_API_URL}/get-stock-history-by-date?${params}`);
-        const data = await response.json();
-        
-        if (data.success) {
-            return data.history || [];
-        } else {
-            throw new Error(data.error || 'Failed to fetch filtered history');
-        }
-    } catch (error) {
-        console.error('❌ Error fetching filtered history:', error);
-        return [];
-    }
-}
-
 async function fetchStockWithComparison() {
     console.log('📦 Fetching stock with comparison...');
     
@@ -429,8 +380,8 @@ async function fetchStockWithComparison() {
             console.log('✅ Stock changed! New items detected:', comparison.changes.length, 'changes');
             updateStockStatus(true, `Stock updated - ${comparison.changes.length} changes detected!`);
             
-            // Save changes AND current stock data to database
-            await saveStockChangeToDatabase(comparison.changes, newStockData);
+            // Save changes to database BEFORE updating previousStockData
+            await saveStockChangeToDatabase(comparison.changes);
             
             // Only refresh history if it's currently visible
             if (historyVisible) {
