@@ -96,7 +96,16 @@ async function getStockHistoryFromDatabase(limit = 20) {
     if (!databaseConnected) return [];
     
     try {
-        const response = await fetch(`${DATABASE_API_URL}/get-stock-history?limit=${limit}`);
+        const response = await fetch(`${DATABASE_API_URL}/get-stock-history`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                limit: limit
+            })
+        });
+        
         const data = await response.json();
         
         if (data.success) {
