@@ -117,6 +117,41 @@ async function getStockHistoryFromDatabase(limit = 20) {
         console.error('❌ Error fetching history from database:', error);
         return [];
     }
+}async function getStockHistoryFromDatabase(limit = 20) {
+    if (!databaseConnected) {
+        console.log('⚠️ Database not connected, returning empty array');
+        return [];
+    }
+    
+    try {
+        console.log('🔍 Fetching history with limit:', limit);
+        
+        const response = await fetch(`${DATABASE_API_URL}/get-stock-history`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                limit: limit
+            })
+        });
+        
+        console.log('🔍 Response status:', response.status);
+        console.log('🔍 Response ok:', response.ok);
+        
+        const data = await response.json();
+        console.log('🔍 Response data:', data);
+        
+        if (data.success) {
+            console.log('🔍 History data received:', data.history);
+            return data.history || [];
+        } else {
+            throw new Error(data.error || 'Failed to fetch history');
+        }
+    } catch (error) {
+        console.error('❌ Error fetching history from database:', error);
+        return [];
+    }
 }
 
 async function clearOldHistoryData() {
@@ -334,8 +369,15 @@ async function fetchStock() {
 async function displayHistory() {
     try {
         historyContainer.innerHTML = '<div class="loading">Loading history...</div>';
-
+        
+        // Debug: Check if database is connected
+        console.log('🔍 Database connected:', databaseConnected);
+        
         const history = await getStockHistoryFromDatabase(50);
+        
+        // Debug: Log the raw history data
+        console.log('🔍 Raw history data:', history);
+        console.log('🔍 History length:', history.length);
 
         if (history.length === 0) {
             historyContainer.innerHTML = '<div class="loading">No history available</div>';
@@ -343,14 +385,35 @@ async function displayHistory() {
         }
 
         let html = '';
-        history.forEach(entry => {
-            // Only include 'changed' entries
+        let totalProcessedEntries = 0;
+        
+        history.forEach((entry, index) => {
+            console.log(`🔍 Processing entry ${index}:`, entry);
+            
+            // Check if entry has changes property
+            if (!entry.changes || !Array.isArray(entry.changes)) {
+                console.log(`⚠️ Entry ${index} has no changes array:`, entry);
+                return;
+            }
+            
+            // Filter for 'changed' entries - but let's also show all types for debugging
             const changedItems = entry.changes.filter(change => change.type === 'changed');
+            const allItems = entry.changes; // Show all for debugging
+            
+            console.log(`🔍 Entry ${index} - All changes:`, allItems);
+            console.log(`🔍 Entry ${index} - Changed items only:`, changedItems);
 
-            if (changedItems.length === 0) return; // Skip if no changed items
+            // For debugging, let's show all changes, not just 'changed' ones
+            const itemsToShow = allItems; // Change this back to changedItems once working
+            
+            if (itemsToShow.length === 0) {
+                console.log(`⚠️ Entry ${index} has no items to show`);
+                return;
+            }
 
+            totalProcessedEntries++;
             const date = new Date(entry.timestamp).toLocaleString();
-            const changeCount = changedItems.length;
+            const changeCount = itemsToShow.length;
 
             html += `
                 <div class="history-item">
@@ -358,9 +421,23 @@ async function displayHistory() {
                     <div class="history-changes">
             `;
 
-            changedItems.forEach(change => {
-                const cleanedItemName = change.item.replace(/^(Changed|Added|Removed):\s*/, '');
-                const changeText = `${change.emoji} ${cleanedItemName} (${change.oldValue})`;
+            itemsToShow.forEach((change, changeIndex) => {
+                console.log(`🔍 Processing change ${changeIndex}:`, change);
+                
+                const cleanedItemName = change.item ? change.item.replace(/^(Changed|Added|Removed):\s*/, '') : 'Unknown Item';
+                const emoji = change.emoji || '❓';
+                
+                let changeText = '';
+                if (change.type === 'changed') {
+                    changeText = `${emoji} ${cleanedItemName} (${change.oldValue} → ${change.newValue})`;
+                } else if (change.type === 'added') {
+                    changeText = `${emoji} ${cleanedItemName} (Added: ${change.value})`;
+                } else if (change.type === 'removed') {
+                    changeText = `${emoji} ${cleanedItemName} (Removed: ${change.value})`;
+                } else {
+                    changeText = `${emoji} ${cleanedItemName} (${change.type})`;
+                }
+                
                 html += `<div class="change-item">${changeText}</div>`;
             });
 
@@ -370,10 +447,18 @@ async function displayHistory() {
             `;
         });
 
-        historyContainer.innerHTML = html;
+        console.log(`🔍 Total processed entries: ${totalProcessedEntries}`);
+        console.log(`🔍 Final HTML length: ${html.length}`);
+
+        if (html === '') {
+            historyContainer.innerHTML = '<div class="loading">No displayable history entries found</div>';
+        } else {
+            historyContainer.innerHTML = html;
+        }
+        
     } catch (error) {
-        console.error('Error displaying history:', error);
-        historyContainer.innerHTML = '<div class="error">Error loading history</div>';
+        console.error('❌ Error displaying history:', error);
+        historyContainer.innerHTML = '<div class="error">Error loading history: ' + error.message + '</div>';
     }
 }
 
